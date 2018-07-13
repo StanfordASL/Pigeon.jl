@@ -1,1 +1,6 @@
+StaticArrays
+Interpolations
+ForwardDiff
+OSQP
+RobotOS
 julia 0.6
