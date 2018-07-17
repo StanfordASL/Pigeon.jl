@@ -1,11 +1,11 @@
 using Pigeon
 using PyCall
 
-function load_path_msg(fname, msg=PyCall.PyObject(osprey.msg.path()))
+function load_path_msg(fname, msg=PyCall.PyObject(Pigeon.osprey.msg.path()))
     open(fname) do f
-        osprey.msg.path[:deserialize](msg, read(f))
+        Pigeon.osprey.msg.path[:deserialize](msg, read(f))
         msg[:header][:frame_id] = String(msg[:header][:frame_id])
-        osprey.msg.path(msg)
+        Pigeon.osprey.msg.path(msg)
     end
 end
 
