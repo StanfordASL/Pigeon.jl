@@ -21,7 +21,7 @@ mutable struct MPC{T}
     us::Vector{BicycleControl{T}}
     ps::Vector{TrackingBicycleParams{T}}
 
-    model::Model{T,OSQP.MathOptInterfaceOSQP.OSQPOptimizer}
+    model::Model{T,OSQPOptimizer}
     variables::QP_Variables
     parameters::QP_Parameters{T}
 

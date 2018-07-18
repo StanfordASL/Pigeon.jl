@@ -3,5 +3,7 @@ DifferentialDynamicsModels
 Interpolations
 ForwardDiff
 OSQP
+MathOptInterface
+SimpleQP
 RobotOS
 julia 0.6

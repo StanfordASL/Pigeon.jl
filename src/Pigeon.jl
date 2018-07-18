@@ -6,7 +6,10 @@ using StaticArrays
 using DifferentialDynamicsModels
 using Interpolations
 using ForwardDiff
-using OSQP
+using OSQP.MathOptInterfaceOSQP
+import MathOptInterface
+const MOI = MathOptInterface
+using SimpleQP
 using RobotOS
 
 macro ST(expr)    # ensures that subtypes of StaticArrays.FieldVector maintain their type upon manipulation

@@ -1,7 +1,3 @@
-using SimpleQP
-using OSQP.MathOptInterfaceOSQP
-import MathOptInterface
-const MOI = MathOptInterface
 SimpleQP.Parameter(A::AbstractArray, model) = Parameter(identity, A, model)
 
 struct QP_Parameters{T}
