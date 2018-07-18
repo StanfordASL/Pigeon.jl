@@ -1,4 +1,5 @@
 StaticArrays
+DifferentialDynamicsModels
 Interpolations
 ForwardDiff
 OSQP
