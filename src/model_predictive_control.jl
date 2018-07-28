@@ -55,8 +55,8 @@ function MPC_time_steps!(ts::Vector, dt::Vector, t0, N_short=10, N_long=20, dt_s
     if use_correction_step
         t0_long = dt_long*ceil((t0_long+dt_short)/dt_long - 1)    # dt_correction ∈ [dt_short, dt_long+dt_short)
     end
-    ts[1:N_short+1] .= t0 + dt_short*(0:N_short)
-    ts[N_short+2:end] .= t0_long + dt_long*(1:N_long)
+    ts[1:N_short+1] .= t0 .+ dt_short*(0:N_short)
+    ts[N_short+2:end] .= t0_long .+ dt_long*(1:N_long)
     for i in 1:N_short+N_long    # long-winded diff!
         dt[i] = ts[i+1] - ts[i]
     end
@@ -78,7 +78,7 @@ function compute_linearization_nodes!(mpc::MPC{T}) where {T}
     s, e0, t0 = path_coordinates(traj, SVector(q0.E, q0.N))
 
     V = hypot(q0.Ux, q0.Uy)
-    β0 = atan2(q0.Uy, q0.Ux)
+    β0 = atan(q0.Uy, q0.Ux)
     r0 = q0.r
     δ0 = u0.δ
     Fyf0, Fyr0 = lateral_tire_forces(B, q0, u0)

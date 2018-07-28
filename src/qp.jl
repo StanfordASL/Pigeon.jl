@@ -1,10 +1,10 @@
 SimpleQP.Parameter(A::AbstractArray, model) = Parameter(identity, A, model)
 
 struct QP_Parameters{T}
-    Q_Δψ  ::Parameter{Diagonal{T},typeof(identity),true}
-    Q_e   ::Parameter{Diagonal{T},typeof(identity),true}
-    R_δ   ::Parameter{Diagonal{T},typeof(identity),true}
-    R_Δδ  ::Parameter{Diagonal{T},typeof(identity),true}
+    Q_Δψ  ::Parameter{Diagonal{T,Vector{T}},typeof(identity),true}
+    Q_e   ::Parameter{Diagonal{T,Vector{T}},typeof(identity),true}
+    R_δ   ::Parameter{Diagonal{T,Vector{T}},typeof(identity),true}
+    R_Δδ  ::Parameter{Diagonal{T,Vector{T}},typeof(identity),true}
     W_β   ::Parameter{Vector{T},typeof(identity),true}
     W_r   ::Parameter{Vector{T},typeof(identity),true}
     curr_q::Parameter{Vector{T},typeof(identity),true}

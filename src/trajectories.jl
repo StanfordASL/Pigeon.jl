@@ -28,14 +28,16 @@ struct TrajectoryTube{T}
         @assert length(t) == length(s) == length(V) == length(A) ==
                 length(E) == length(N) == length(ψ) == length(κ) ==
                 length(θ) == length(ϕ) == length(edge_L) == length(edge_R)
-        interp_by_s = interpolate((s,), reinterpret(SpatialInterpolants{T}, [E N ψ κ θ ϕ edge_L edge_R]', (length(s),)), Gridded(Linear()))
+        interp_by_s = interpolate((s,), vec(reinterpret(SpatialInterpolants{T}, [E N ψ κ θ ϕ edge_L edge_R]')), Gridded(Linear()))
         new(t, s, V, A, E, N, ψ, κ, θ, ϕ, edge_L, edge_R, interp_by_s)
     end
 end
-TrajectoryTube(t::Vector{T}, s::Vector{T}, V::Vector{T}, A::Vector{T},
-               E::Vector{T}, N::Vector{T}, ψ::Vector{T}, κ::Vector{T},
-               θ::Vector{T}=zeros(t), ϕ::Vector{T}=zeros(t),
-               edge_L::Vector{T}=4*ones(t), edge_R::Vector{T}=-4*ones(t)) where {T} = TrajectoryTube{T}(t, s, V, A, E, N, ψ, κ, θ, ϕ, edge_L, edge_R)
+function TrajectoryTube(t::Vector{T}, s::Vector{T}, V::Vector{T}, A::Vector{T},
+                        E::Vector{T}, N::Vector{T}, ψ::Vector{T}, κ::Vector{T},
+                        θ::Vector{T}=zero(t), ϕ::Vector{T}=zero(t),
+                        edge_L::Vector{T}=fill(T(4), size(t)), edge_R::Vector{T}=fill(-T(4), size(t))) where {T}
+    TrajectoryTube{T}(t, s, V, A, E, N, ψ, κ, θ, ϕ, edge_L, edge_R)
+end
 Base.length(traj::TrajectoryTube) = length(traj.s)
 DifferentialDynamicsModels.duration(traj::TrajectoryTube) = traj.t[end] - traj.t[1]
 function (traj::TrajectoryTube)(t)

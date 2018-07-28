@@ -2,6 +2,8 @@ __precompile__()
 
 module Pigeon
 
+using LinearAlgebra
+using Distributed
 using StaticArrays
 using DifferentialDynamicsModels
 using Interpolations
@@ -46,6 +48,16 @@ function __init__()
     @rosimport asl_prototyping.msg: VehicleTrajectory
     @rosimport auto_bridge.msg: from_autobox, to_autobox
     SimpleQP.initialize!(X1MPC.model)    # Refresh pointer to OSQP model
+
+    # more compilation
+    MPC_time_steps!(X1MPC, 0.)
+    compute_linearization_nodes!(X1MPC)
+    update_QP!(X1MPC)
+    solve!(X1MPC.model)
+end
+
+function load_test_paths()
+    include(joinpath(@__DIR__, "..", "test", "load_test_paths.jl"))
 end
 
 end # module

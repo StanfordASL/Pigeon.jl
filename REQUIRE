@@ -1,9 +1,11 @@
-StaticArrays
+StaticArrays 0.8.2
 DifferentialDynamicsModels
-Interpolations
-ForwardDiff
-OSQP
-MathOptInterface
+LinearDynamicsModels
+Interpolations 0.7.3
+ForwardDiff 0.8.0
+OSQP 0.1.8
+MathOptInterface 0.4.1
 SimpleQP
-RobotOS
+PyCall 1.17.1
+RobotOS 0.6.2
 julia 0.7-beta

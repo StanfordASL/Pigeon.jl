@@ -100,8 +100,8 @@ end
     a, b = B.a, B.b
 
     sδ, cδ = sincos(δ)
-    αf = atan2(Uy + a*r, Ux) - δ
-    αr = atan2(Uy - b*r, Ux)
+    αf = atan(Uy + a*r, Ux) - δ
+    αr = atan(Uy - b*r, Ux)
     lateral_tire_forces(B, αf, αr, Fxf, Fxr, sδ, cδ, num_iters)
 end
 
@@ -115,8 +115,8 @@ function (B::BicycleModel{T})(q::StaticVector{6}, u::StaticVector{3}, road::Stat
 
     sψ, cψ = sincos(ψ)
     sδ, cδ = sincos(δ)
-    αf = atan2(Uy + a*r, Ux) - δ
-    αr = atan2(Uy - b*r, Ux)
+    αf = atan(Uy + a*r, Ux) - δ
+    αr = atan(Uy - b*r, Ux)
     Fyf, Fyr = lateral_tire_forces(B, αf, αr, Fxf, Fxr, sδ, cδ)
     Fx_drag = -Cd0 - Ux*(Cd1 + Cd2*Ux)
     Fx_grade = 0    # TODO: figure out how roll/pitch are ordered
@@ -147,8 +147,8 @@ function (B::BicycleModel{T})(q::StaticVector{4}, u::StaticVector{3}, params::St
 
     sΔψ, cΔψ = sincos(Δψ)
     sδ, cδ = sincos(δ)
-    αf = atan2(Uy + a*r, Ux) - δ
-    αr = atan2(Uy - b*r, Ux)
+    αf = atan(Uy + a*r, Ux) - δ
+    αr = atan(Uy - b*r, Ux)
     Fyf, Fyr = lateral_tire_forces(B, αf, αr, Fxf, Fxr, sδ, cδ)
     Fy_grade = 0
     F̃yf = Fyf*cδ + Fxf*sδ
@@ -172,7 +172,7 @@ function ZOH(B::BicycleModel{T}, q, u, p, dt) where {T}
     AB = J[:,ABinds]
     c = f - AB*qup[ABinds]
     G = [[AB c]; zeros(SMatrix{2,6,T})]
-    expGdt = expm(G*dt)
+    expGdt = exp(G*dt)
     expGdt[Ainds, Ainds], expGdt[Ainds, SVector(5)], expGdt[Ainds, 6]
 end
 
@@ -183,7 +183,7 @@ function FOH(B::BicycleModel{T}, q, u0, p0, u1, p1, dt) where {T}
     Ainds = @SVector [i for i in 1:4]
     Rinds = @SVector [i for i in 6:11]
     c = f - J*qup
-    G = [[J c zeros(SMatrix{4,7,T})]; [zeros(SMatrix{7,12,T}) eye(SMatrix{7,7,T})/dt]; zeros(SMatrix{8,19,T})]    # 1:4 = q, 5:11 = up, 12 = 1, 13:19 = Δup
+    G = [[J c zeros(SMatrix{4,7,T})]; [zeros(SMatrix{7,12,T}) SMatrix{7,7,T}(I)/dt]; zeros(SMatrix{8,19,T})]    # 1:4 = q, 5:11 = up, 12 = 1, 13:19 = Δup
     expGdt = myexpm(G*dt)
     expGdt[Ainds, Ainds], expGdt[Ainds, SVector(5)] - expGdt[Ainds, SVector(13)], expGdt[Ainds, SVector(13)], expGdt[Ainds, Rinds]*qup[Rinds] + expGdt[Ainds, 8+Rinds]*([u1[SVector(2,3)]; p1] - qup[Rinds]) + expGdt[Ainds, 12]
 end
@@ -322,7 +322,7 @@ function steady_state_estimates(B::BicycleModel{T}, U::ControlParams{T}, κ, A_t
         Fyf = F̃yf*cδ - F̃xf*sδ
         Fyfmax = sqrt(Ffmax*Ffmax - Fxf*Fxf)
         αf = atan(_invfialatiremodel(Fyf, Cαf, Fyfmax))
-        δ = atan2(Uy + a*r, Ux) - αf
+        δ = atan(Uy + a*r, Ux) - αf
 
         if i == num_iters
             Ax = (Fxf*cδ - Fyf*sδ + Fxr + Fx_drag + Fx_grade)/m

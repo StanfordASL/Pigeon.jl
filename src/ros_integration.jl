@@ -1,7 +1,7 @@
 @rosimport osprey.msg: path
 @rosimport asl_prototyping.msg: VehicleTrajectory
 @rosimport auto_bridge.msg: from_autobox, to_autobox
-rostypegen(current_module())
+rostypegen(@__MODULE__)
 import .osprey.msg: path
 import .asl_prototyping.msg: VehicleTrajectory
 import .auto_bridge.msg: from_autobox, to_autobox
@@ -19,13 +19,13 @@ const latest_trajectory = fill(straight_trajectory(30., 5.))
 function nominal_trajectory_callback(msg::path, mpc=X1MPC)
     latest_trajectory[] = TrajectoryTube(msg)
     if isnan(mpc.time_offset)
-        mpc.time_offset = Float64(msg.header.stamp)
+        mpc.time_offset = convert(Float64, msg.header.stamp)
     end
 end
 function nominal_trajectory_callback(msg::VehicleTrajectory, mpc=X1MPC)
     latest_trajectory[] = TrajectoryTube(msg)
     if isnan(mpc.time_offset)
-        mpc.time_offset = Float64(msg.header.stamp)
+        mpc.time_offset = convert(Float64, msg.header.stamp)
     end
 end
 
@@ -43,7 +43,7 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
         RobotOS.loginfo("Pigeon MPC: time_offset not set")
         return
     end
-    t = Float64(msg.header.stamp) - mpc.time_offset
+    t = convert(Float64, msg.header.stamp) - mpc.time_offset
     if t < 0 || t > mpc.trajectory.t[end]
         RobotOS.loginfo("Pigeon MPC: current time $t outside range [0, $(mpc.trajectory.t[end])]")
         return
@@ -54,20 +54,20 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
         mpc.heartbeat = msg.header.seq - 1
     end
 
-    tic()
-    try
-        MPC_time_steps!(mpc, t)
-        compute_linearization_nodes!(mpc)
-        update_QP!(mpc)
-        solve!(mpc.model)
-    catch err
-        RobotOS.logwarn("OSQP Error: $err")
+    t_elapsed = @elapsed begin
+        try
+            MPC_time_steps!(mpc, t)
+            compute_linearization_nodes!(mpc)
+            update_QP!(mpc)
+            solve!(mpc.model)
+        catch err
+            RobotOS.logwarn("OSQP Error: $err")
+        end
     end
-    t_elapsed = toq()
 
     RobotOS.loginfo("Pigeon MPC: OSQP took $(1000*t_elapsed) ms at heartbeat $(mpc.heartbeat)")
-    RobotOS.loginfo("Pigeon MPC: $(mpc.model.optimizer.results.info)")
-    RobotOS.loginfo("deltas: $(value.(mpc.model, mpc.variables.δ))")
+    # RobotOS.loginfo("Pigeon MPC: $(mpc.model.optimizer.results.info)")
+    # RobotOS.loginfo("deltas: $(value.(mpc.model, mpc.variables.δ))")
     mpc.heartbeat += 1
 
     s, e, _ = path_coordinates(mpc.trajectory, SVector(mpc.current_state.E, mpc.current_state.N))

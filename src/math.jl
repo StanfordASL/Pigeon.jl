@@ -1,16 +1,13 @@
 const GRAVITY = 9.80665
 
-if !isdefined(:sincos)    # sincos will exist in Julia 0.7
-    @inline sincos(x) = sin(x), cos(x)
-end
 @inline mod2piF(x::T) where {T<:AbstractFloat} = mod(x, 2*T(pi))
 @inline function adiff(x::T, y::T) where {T<:AbstractFloat}
     d = mod2piF(x - y)
     d <= π ? d : d - 2*T(π)
 end
 
-cumtrapz(y::Vector, x::Vector, x0=0) = cumsum(vcat(0, diff(x).*(y[1:end-1] + y[2:end])/2)) + x0
-invcumtrapz(y::Vector, x::Vector, x0=0) = cumsum(vcat(0, 2*diff(x)./(y[1:end-1] + y[2:end]))) + x0
+cumtrapz(y::Vector, x::Vector, x0=0) = cumsum(vcat(0, diff(x).*(y[1:end-1] .+ y[2:end])/2)) .+ x0
+invcumtrapz(y::Vector, x::Vector, x0=0) = cumsum(vcat(0, 2*diff(x)./(y[1:end-1] .+ y[2:end]))) .+ x0
 
 @inline function distance2(line::Tuple{<:AbstractVector,<:AbstractVector}, x)
     v = line[2] - line[1]
@@ -43,14 +40,14 @@ macro evalmatrixpoly!(B, C, d, Apow_p...)    # probably no reason for this to be
             $(if !highest_order_terms
                 gemm_ex
             end)
-            copy!(B, C)
+            copyto!(B, C)
         end
         highest_order_terms = false
     end
     ex
 end
 
-import Base.LinAlg: BlasInt, BlasFloat, checksquare, SingularException
+import LinearAlgebra: BlasInt, BlasFloat, checksquare, SingularException
 
 function mygesv!(A::StridedMatrix{T}, B::StridedMatrix{T}, ipiv::Vector{Int}, perm::Vector{Int}) where T
     # LU factorization
@@ -138,7 +135,7 @@ const myexpm_workspace_cache = Dict{Tuple{Int,DataType},Tuple{Matrix,myexpmWorks
 get_expm_workspace(N, ::Type{T}) where {T} = get!(myexpm_workspace_cache, (N,T)) do; (zeros(T,N,N), myexpmWorkspace(N,T)) end
 function myexpm(A::StaticMatrix{N,N,T}) where {N,T}
     ws = get_expm_workspace(N,T)::Tuple{Matrix{T},myexpmWorkspace{T}}
-    typeof(A)(myexpm!(copy!(ws[1], A), ws[2]))
+    typeof(A)(myexpm!(copyto!(ws[1], A), ws[2]))
 end
 myexpm(A::Matrix{T}) where T<:BlasFloat = myexpm!(copy(A), myexpmWorkspace(size(A,1),T))
 function myexpm!(A::Matrix{T}, ws::myexpmWorkspace{T}=myexpmWorkspace(size(A,1),T)) where T<:BlasFloat
@@ -147,22 +144,22 @@ function myexpm!(A::Matrix{T}, ws::myexpmWorkspace{T}=myexpmWorkspace(size(A,1),
     U, V, W, A2, A4, A6, ipiv, perm = ws.U, ws.V, ws.W, ws.A2, ws.A4, ws.A6, ws.ipiv, ws.perm
     ## For sufficiently small nA, use lower order Padé-Approximations
     if (nA <= 2.1)
-        A_mul_B!(A2, A, A)
+        mul!(A2, A, A)
         if nA > 0.95
             @evalmatrixpoly!(V, W, 1, A2, T(8821612800), T(302702400), T(2162160), T(3960), T(1))
-            A_mul_B!(U, A, V)
+            mul!(U, A, V)
             @evalmatrixpoly!(V, W, 1, A2, T(17643225600), T(2075673600), T(30270240), T(110880), T(90))
         elseif nA > 0.25
             @evalmatrixpoly!(V, W, 1, A2, T(8648640), T(277200), T(1512), T(1))
-            A_mul_B!(U, A, V)
+            mul!(U, A, V)
             @evalmatrixpoly!(V, W, 1, A2, T(17297280), T(1995840), T(25200), T(56))
         elseif nA > 0.015
             @evalmatrixpoly!(V, W, 1, A2, T(15120), T(420), T(1))
-            A_mul_B!(U, A, V)
+            mul!(U, A, V)
             @evalmatrixpoly!(V, W, 1, A2, T(30240), T(3360), T(30))
         else
             @evalmatrixpoly!(V, W, 1, A2, T(60), T(1))
-            A_mul_B!(U, A, V)
+            mul!(U, A, V)
             @evalmatrixpoly!(V, W, 1, A2, T(120), T(12))
         end
         W .= V .- U
@@ -175,12 +172,12 @@ function myexpm!(A::Matrix{T}, ws::myexpmWorkspace{T}=myexpmWorkspace(size(A,1),
             A ./= convert(T,2^si)
         end
 
-        A_mul_B!(A2, A, A)
-        A_mul_B!(A4, A2, A2)
-        A_mul_B!(A6, A2, A4)
+        mul!(A2, A, A)
+        mul!(A4, A2, A2)
+        mul!(A6, A2, A4)
 
         @evalmatrixpoly!(V, W, 3, A2, A4, A6, T(32382376266240000), T(1187353796428800), T(10559470521600), T(33522128640), T(40840800), T(16380), T(1))
-        A_mul_B!(U, A, V)
+        mul!(U, A, V)
         @evalmatrixpoly!(V, W, 3, A2, A4, A6, T(64764752532480000), T(7771770303897600), T(129060195264000), T(670442572800), T(1323241920), T(960960), T(182))
         W .= V .- U
         A .= V .+ U
@@ -188,8 +185,8 @@ function myexpm!(A::Matrix{T}, ws::myexpmWorkspace{T}=myexpmWorkspace(size(A,1),
 
         if s > 0            # squaring to reverse dividing by power of 2
             for t=1:si
-                A_mul_B!(W, A, A)
-                copy!(A, W)
+                mul!(W, A, A)
+                copyto!(A, W)
             end
         end
     end
