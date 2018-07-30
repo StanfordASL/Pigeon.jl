@@ -18,15 +18,11 @@ TrajectoryTube(p::VehicleTrajectory) = TrajectoryTube{Float64}(
 const latest_trajectory = fill(straight_trajectory(30., 5.))
 function nominal_trajectory_callback(msg::path, mpc=X1MPC)
     latest_trajectory[] = TrajectoryTube(msg)
-    if isnan(mpc.time_offset)
-        mpc.time_offset = convert(Float64, msg.header.stamp)
-    end
+    mpc.time_offset = NaN
 end
 function nominal_trajectory_callback(msg::VehicleTrajectory, mpc=X1MPC)
     latest_trajectory[] = TrajectoryTube(msg)
-    if isnan(mpc.time_offset)
-        mpc.time_offset = convert(Float64, msg.header.stamp)
-    end
+    mpc.time_offset = convert(Float64, msg.header.stamp)
 end
 
 ### /to_autobox
@@ -40,13 +36,14 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
     mpc.current_control = BicycleControl(to_autobox_msg.delta_cmd_rad, to_autobox_msg.fxf_cmd_N, to_autobox_msg.fxr_cmd_N)
     mpc.trajectory = latest_trajectory[]
     if isnan(mpc.time_offset)
-        RobotOS.loginfo("Pigeon MPC: time_offset not set")
-        return
-    end
-    t = convert(Float64, msg.header.stamp) - mpc.time_offset
-    if t < 0 || t > mpc.trajectory.t[end]
-        RobotOS.loginfo("Pigeon MPC: current time $t outside range [0, $(mpc.trajectory.t[end])]")
-        return
+        RobotOS.loginfo("Pigeon MPC: time_offset not set, running in path tracking mode")
+        _, _, t = path_coordinates(mpc.trajectory, SVector(mpc.current_state.E, mpc.current_state.N))
+    else
+        t = convert(Float64, msg.header.stamp) - mpc.time_offset
+        if t < 0 || t > mpc.trajectory.t[end]
+            RobotOS.loginfo("Pigeon MPC: current time $t outside trajectory interval [0, $(mpc.trajectory.t[end])]")
+            return
+        end
     end
     MPC_steps_missed = msg.header.seq - (mpc.heartbeat + 1)
     if MPC_steps_missed != 0
@@ -79,6 +76,15 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
     to_autobox_msg.delta_cmd_rad = value(mpc.model, mpc.variables.δ[2])
     to_autobox_msg.fxf_cmd_N     = mpc.us[2].Fxf
     to_autobox_msg.fxr_cmd_N     = mpc.us[2].Fxr
+    if isnan(to_autobox_msg.delta_cmd_rad) || isnan(to_autobox_msg.fxf_cmd_N) || isnan(to_autobox_msg.fxr_cmd_N)
+        RobotOS.loginfo("Pigeon MPC: OSQP returned NaNs " *
+                        "($(to_autobox_msg.delta_cmd_rad), $(to_autobox_msg.fxf_cmd_N), $(to_autobox_msg.fxr_cmd_N))" *
+                        "; using previous control "*
+                        "($(mpc.current_control.δ), $(mpc.current_control.Fxf), $(mpc.current_control.Fxr))")
+        to_autobox_msg.delta_cmd_rad = mpc.current_control.δ
+        to_autobox_msg.fxf_cmd_N     = mpc.current_control.Fxf
+        to_autobox_msg.fxr_cmd_N     = mpc.current_control.Fxr
+    end
     publish(to_autobox_pub, to_autobox_msg)
 end
 

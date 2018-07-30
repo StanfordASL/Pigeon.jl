@@ -14,17 +14,6 @@ const MOI = MathOptInterface
 using SimpleQP
 using RobotOS
 
-macro ST(expr)    # ensures that subtypes of StaticArrays.FieldVector maintain their type upon manipulation
-    full_name = expr.args[2].args[1]
-    short_name = full_name isa Symbol ? full_name : full_name.args[1]
-    N = expr.args[2].args[2].args[2]
-    T = expr.args[2].args[2].args[3]
-    quote
-        $(esc(expr))
-        $(esc(:(StaticArrays.similar_type(::Type{<:$short_name}, ::Type{$T}, s::Size{($N,)}) where {$T} = $full_name)))
-    end
-end
-
 include("math.jl")
 include("trajectories.jl")
 include("vehicles.jl")

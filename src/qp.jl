@@ -38,6 +38,7 @@ function construct_QP(mpc)
 
     optimizer = OSQPOptimizer()
     MOI.set!(optimizer, OSQPSettings.Verbose(), false)
+    MOI.set!(optimizer, OSQPSettings.WarmStart(), false)
     m = Model(optimizer)
 
     Q_Δψ   = Parameter(Diagonal(U.Q_Δψ .* dt), m)

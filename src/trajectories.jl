@@ -1,7 +1,7 @@
-@ST struct TrajectoryNode{T} <: FieldVector{12,T} t::T; s::T; V::T; A::T; E::T; N::T; ψ::T; κ::T; θ::T; ϕ::T; edge_L::T; edge_R::T end
-@ST struct TimeInterpolants{T} <: FieldVector{3,T} s::T; V::T; A::T end
-@ST struct SpatialInterpolants{T} <: FieldVector{8,T} E::T; N::T; ψ::T; κ::T; θ::T; ϕ::T; edge_L::T; edge_R::T end
-@ST struct LocalRoadGeometry{T} <: FieldVector{4,T} ψ::T; κ::T; θ::T; ϕ::T end
+@maintain_type struct TrajectoryNode{T} <: FieldVector{12,T} t::T; s::T; V::T; A::T; E::T; N::T; ψ::T; κ::T; θ::T; ϕ::T; edge_L::T; edge_R::T end
+@maintain_type struct TimeInterpolants{T} <: FieldVector{3,T} s::T; V::T; A::T end
+@maintain_type struct SpatialInterpolants{T} <: FieldVector{8,T} E::T; N::T; ψ::T; κ::T; θ::T; ϕ::T; edge_L::T; edge_R::T end
+@maintain_type struct LocalRoadGeometry{T} <: FieldVector{4,T} ψ::T; κ::T; θ::T; ϕ::T end
 
 TrajectoryNode(t, ti::TimeInterpolants, si::SpatialInterpolants) = TrajectoryNode(t, ti.s, ti.V, ti.A, si.E, si.N, si.ψ, si.κ, si.θ, si.ϕ, si.edge_L, si.edge_R)
 LocalRoadGeometry(tn::TrajectoryNode) = LocalRoadGeometry(tn.ψ, tn.κ, tn.θ, tn.ϕ)
@@ -77,7 +77,7 @@ function path_coordinates(traj::TrajectoryTube, x)
     w = x - traj[i]
     ds = sqrt(w'*w - d2min)
     s = traj.s[i] + ds
-    e = copysign(sqrt(d2min), cross(v, w))
+    e = sqrt(d2min)*sign(cross(v, w))
     A = (traj.V[i+1] - traj.V[i])/(traj.t[i+1] - traj.t[i])    # potentially different from traj.A[i]
     if abs(A) < 1e-3
         dt = ds/traj.V[i]

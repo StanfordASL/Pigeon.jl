@@ -1,4 +1,6 @@
-@ST struct BicycleState{T} <: FieldVector{6,T}
+import StaticArrays: SUnitRange
+
+@maintain_type struct BicycleState{T} <: FieldVector{6,T}
     E::T    # world frame "x" position of CM
     N::T    # world frame "y" position of CM
     ψ::T    # world frame heading of vehicle
@@ -7,21 +9,21 @@
     r::T    # yaw rate (dψ/dt)
 end
 
-@ST struct TrackingBicycleState{T} <: FieldVector{4,T}
+@maintain_type struct TrackingBicycleState{T} <: FieldVector{4,T}
     Uy::T   # body frame lateral speed
     r::T    # yaw rate
     Δψ::T   # heading error (w.r.t. nominal trajectory)
     e::T    # lateral error (w.r.t. nominal trajectory)
 end
 
-@ST struct TrackingBicycleParams{T} <: FieldVector{4,T}
+@maintain_type struct TrackingBicycleParams{T} <: FieldVector{4,T}
     Ux::T   # body frame longitudinal speed
     κ::T    # nominal trajectory (local) curvature
     θ::T   # nominal trajectory (local) pitch grade
     ϕ::T   # nominal trajectory (local) roll grade
 end
 
-@ST struct BicycleControl{T} <: FieldVector{3,T}
+@maintain_type struct BicycleControl{T} <: FieldVector{3,T}
     δ::T    # steering angle
     Fxf::T  # front tire longitudinal force (tire frame)
     Fxr::T  # rear tire longidutinal force (tire frame)
@@ -62,7 +64,7 @@ end
     if ratio <= 1
         -Cα*tanα*(1 - ratio + ratio*ratio/3)
     else
-        -copysign(Fymax, tanα)
+        -Fymax*sign(tanα)
     end
 end
 
@@ -74,9 +76,9 @@ end
 
 @inline function _invfialatiremodel(Fy, Cα, Fymax)    # returns tanα
     if abs(Fy) >= Fymax
-        -copysign(3*Fymax/Cα, Fy)
+        -(3*Fymax/Cα)*sign(Fy)
     else
-        -copysign(1 + cbrt(abs(Fy)/Fymax - 1), Fy)
+        -(1 + cbrt(abs(Fy)/Fymax - 1))*sign(Fy)
     end
 end
 
@@ -132,8 +134,9 @@ function (B::BicycleModel{T})(q::StaticVector{6}, u::StaticVector{3}, road::Stat
         (a*F̃yf - b*Fyr)/Izz
     )
 end
-(B::BicycleModel{T})(qu::StaticVector{9}, road::StaticVector{4}=zeros(LocalRoadGeometry{T})) where {T} = B(qu[SVector(1,2,3,4,5,6)], qu[SVector(7,8,9)], road)
-(B::BicycleModel)(qur::StaticVector{13}) = B(qur[SVector(1,2,3,4,5,6)], qur[SVector(7,8,9)], qur[SVector(10,11,12,13)])
+(B::BicycleModel{T})(q::StaticVector{6}, ur::StaticVector{7}=zeros(LocalRoadGeometry{T})) where {T} = B(q, ur[SUnitRange(1,3)], ur[SUnitRange(4,7)])
+(B::BicycleModel{T})(qu::StaticVector{9}, r::StaticVector{4}=zeros(LocalRoadGeometry{T})) where {T} = B(qu[SUnitRange(1,6)], qu[SUnitRange(7,9)], r)
+(B::BicycleModel)(qur::StaticVector{13}) = B(qur[SUnitRange(1,6)], qur[SUnitRange(7,9)], qur[SUnitRange(10,13)])
 
 # Nonlinear Tracking Bicycle Model
 function (B::BicycleModel{T})(q::StaticVector{4}, u::StaticVector{3}, params::StaticVector{4}=zeros(TrackingBicycleParams{T})) where {T}
@@ -159,8 +162,9 @@ function (B::BicycleModel{T})(q::StaticVector{4}, u::StaticVector{3}, params::St
         Ux*sΔψ + Uy*cΔψ
     )
 end
-(B::BicycleModel{T})(qu::StaticVector{7}, params::StaticVector{4}=zeros(TrackingBicycleParams{T})) where {T} = B(qu[SVector(1,2,3,4)], qu[SVector(5,6,7)], params)
-(B::BicycleModel)(qup::StaticVector{11}) = B(qup[SVector(1,2,3,4)], qup[SVector(5,6,7)], qup[SVector(8,9,10,11)])
+(B::BicycleModel{T})(q::StaticVector{4}, up::StaticVector{7}=zeros(TrackingBicycleParams{T})) where {T} = B(q, up[SUnitRange(1,3)], up[SUnitRange(4,7)])
+(B::BicycleModel{T})(qu::StaticVector{7}, p::StaticVector{4}=zeros(TrackingBicycleParams{T})) where {T} = B(qu[SUnitRange(1,4)], qu[SUnitRange(5,7)], p)
+(B::BicycleModel)(qup::StaticVector{11}) = B(qup[SUnitRange(1,4)], qup[SUnitRange(5,7)], qup[SUnitRange(8,11)])
 
 # Linearization
 function ZOH(B::BicycleModel{T}, q, u, p, dt) where {T}
@@ -280,11 +284,11 @@ function steady_state_estimates(B::BicycleModel{T}, U::ControlParams{T}, κ, A_t
     A_max = μ*G
     if A_mag > A_max             # nominal trajectory total acceleration exceeds friction limit
         if abs(A_rad) > A_max    # nominal trajectory lateral acceleration exceeds friction limit
-            A_rad = copysign(A_max, A_rad)
+            A_rad = A_max*sign(A_rad)
             A_tan = zero(A_rad)
             # error("TODO: case when nominal trajectory lateral acceleration exceeds friction limit")
         else    # preserve radial acceleration for path tracking; reduce intended acceleration along path to compensate
-            A_tan = copysign(sqrt(A_max*A_max - A_rad*A_rad), A_tan)
+            A_tan = sqrt(A_max*A_max - A_rad*A_rad)*sign(A_tan)
         end
     end
     ṙ = A_tan*κ
