@@ -243,6 +243,8 @@ struct ControlParams{T}
     fwb_frac::T
     rwb_frac::T
 
+    V_min::T
+
     k_V::T
     k_s::T
 
@@ -257,7 +259,8 @@ struct ControlParams{T}
     R_δ::T
     R_Δδ::T
 end
-function ControlParams(vehicle::Dict,
+function ControlParams(vehicle::Dict;
+                       V_min=2.0,
                        k_V=GRAVITY/4/100,
                        k_s=GRAVITY/4/10000,
                        δ_hwmax=18*π/180,
@@ -268,7 +271,7 @@ function ControlParams(vehicle::Dict,
                        W_r=50.0,
                        R_δ=0.0,
                        R_Δδ=0.01/(10*π/180)^2)
-    ControlParams((vehicle[n] for n in fieldnames(ControlParams)[1:6])..., k_V, k_s,
+    ControlParams((vehicle[n] for n in fieldnames(ControlParams)[1:6])..., V_min, k_V, k_s,
                   δ_hwmax, δ̇_max, Q_Δψ, Q_e, W_β, W_r, R_δ, R_Δδ)
 end
 

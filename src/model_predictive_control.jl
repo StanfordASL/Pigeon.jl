@@ -87,6 +87,7 @@ function compute_linearization_nodes!(mpc::MPC{T}) where {T}
         tj = traj[s]
         κ = tj.κ
         A_des = tj.A + U.k_V*(tj.V - V)/τ + (isnan(mpc.time_offset) ? 0 : U.k_s*(traj(ts[i]).s - s)/τ/τ)   # alternatively, - U.k_t*(tj.t - ts[i])/τ/τ
+        A_des = max(A_des, (U.V_min - V)/τ)
         if i <= N_short+1
             q = TrackingBicycleState(q0.Uy, q0.r, adiff(q0.ψ, tj.ψ), e0)    # to match paper should be (..., 0.0, 0.0)
             _, u, p, A = steady_state_estimates(B, U, κ, A_des, V, 1, r0, β0, δ0, Fyf0)
@@ -149,7 +150,9 @@ function simulate(mpc, q0, u0, dt=0.01)
     mpc.current_state = q0
     mpc.current_control = u0
     qs = []
+    xs = []
     us = []
+    ps = []
     for t in 0:dt:mpc.trajectory.t[end]
         push!(qs, mpc.current_state)
         push!(us, mpc.current_control)
@@ -159,6 +162,8 @@ function simulate(mpc, q0, u0, dt=0.01)
         solve!(mpc.model)
         mpc.current_state = propagate(mpc.bicycle_model, mpc.current_state, StepControl(dt, mpc.current_control))
         mpc.current_control = BicycleControl(value(mpc.model, mpc.variables.δ[2]), mpc.us[2][2], mpc.us[2][3])
+        push!(xs, mpc.qs[1])
+        push!(ps, mpc.ps[1])
     end
-    qs, us
+    qs, xs, us, ps
 end
