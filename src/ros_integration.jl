@@ -35,6 +35,10 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
     # mpc.current_control = BicycleControl(msg.delta_rad, msg.fxf_N, msg.fxr_N)
     mpc.current_control = BicycleControl(to_autobox_msg.delta_cmd_rad, to_autobox_msg.fxf_cmd_N, to_autobox_msg.fxr_cmd_N)
     mpc.trajectory = latest_trajectory[]
+    if msg.pre_flag == 0
+        RobotOS.loginfo("Pigeon MPC: /from_autobox pre_flag == 0, MPC inactive")
+        return
+    end
     if isnan(mpc.time_offset)
         RobotOS.loginfo("Pigeon MPC: time_offset not set, running in path tracking mode")
         _, _, t = path_coordinates(mpc.trajectory, SVector(mpc.current_state.E, mpc.current_state.N))
@@ -47,6 +51,7 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
     end
     if mpc.current_state.Ux < 1
         RobotOS.loginfo("Pigeon MPC: current speed < 1, pausing MPC while X1 is stopped")
+        return
     end
     MPC_steps_missed = msg.header.seq - (mpc.heartbeat + 1)
     if MPC_steps_missed != 0
