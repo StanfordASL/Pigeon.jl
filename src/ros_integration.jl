@@ -45,6 +45,9 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
             return
         end
     end
+    if mpc.current_state.Ux < 1
+        RobotOS.loginfo("Pigeon MPC: current speed < 1, pausing MPC while X1 is stopped")
+    end
     MPC_steps_missed = msg.header.seq - (mpc.heartbeat + 1)
     if MPC_steps_missed != 0
         RobotOS.logwarn("Pigeon MPC: $(MPC_steps_missed) from_autobox messages lost")
@@ -84,8 +87,13 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
         to_autobox_msg.delta_cmd_rad = mpc.current_control.δ
         to_autobox_msg.fxf_cmd_N     = mpc.current_control.Fxf
         to_autobox_msg.fxr_cmd_N     = mpc.current_control.Fxr
+        publish(to_autobox_pub, to_autobox_msg)
+        to_autobox_msg.delta_cmd_rad = 0    # ensures that if we get 2 NaNs in a row, we return to 0 control
+        to_autobox_msg.fxf_cmd_N     = 0
+        to_autobox_msg.fxr_cmd_N     = 0
+    else
+        publish(to_autobox_pub, to_autobox_msg)
     end
-    publish(to_autobox_pub, to_autobox_msg)
 end
 
 ### ROS node init
