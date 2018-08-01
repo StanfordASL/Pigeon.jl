@@ -82,7 +82,7 @@ function path_coordinates(traj::TrajectoryTube, x)
     if abs(A) < 1e-3
         dt = ds/traj.V[i]
     else
-        dt = (sqrt(2*A*ds + traj.V[i]^2) - traj.V[i])/A
+        dt = (sqrt(max(2*A*ds + traj.V[i]^2, 0)) - traj.V[i])/A
     end
     t = traj.t[i] + dt
     s, e, t

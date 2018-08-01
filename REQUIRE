@@ -8,4 +8,5 @@ MathOptInterface 0.4.1
 SimpleQP
 PyCall 1.17.1
 RobotOS 0.6.2
+MAT
 julia 0.7-beta

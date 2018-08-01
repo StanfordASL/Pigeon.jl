@@ -7,6 +7,7 @@ struct QP_Parameters{T}
     R_Δδ  ::Parameter{Diagonal{T,Vector{T}},typeof(identity),true}
     W_β   ::Parameter{Vector{T},typeof(identity),true}
     W_r   ::Parameter{Vector{T},typeof(identity),true}
+    W_HJI ::Parameter{Vector{T},typeof(identity),true}
     curr_q::Parameter{Vector{T},typeof(identity),true}
     curr_δ::Parameter{Vector{T},typeof(identity),true}
     A     ::Vector{Parameter{Matrix{T},typeof(identity),true}}
@@ -20,12 +21,15 @@ struct QP_Parameters{T}
     δ_max ::Vector{Parameter{Vector{T},typeof(identity),true}}
     Δδ_min::Vector{Parameter{Vector{T},typeof(identity),true}}
     Δδ_max::Vector{Parameter{Vector{T},typeof(identity),true}}
+    Mδ_HJI::Vector{Parameter{Matrix{T},typeof(identity),true}}
+    bδ_HJI::Vector{Parameter{Vector{T},typeof(identity),true}}
 end
 
 struct QP_Variables
     q::Matrix{Variable}
     δ::Matrix{Variable}
     σ::Matrix{Variable}
+    HJI_slacks::Matrix{Variable}
 end
 
 function construct_QP(mpc)
@@ -47,6 +51,7 @@ function construct_QP(mpc)
     R_Δδ   = Parameter(Diagonal(U.R_Δδ ./ dt), m)
     W_β    = Parameter(U.W_β .* dt, m)
     W_r    = Parameter(U.W_r .* dt, m)
+    W_HJI  = Parameter(U.W_HJI .* ones(N_short), m)
     curr_q = Parameter(Array(qs[1]), m)
     curr_δ = Parameter([curr_δ], m)
     A  = Parameter{Matrix{Float64},typeof(identity),true}[]
@@ -60,6 +65,8 @@ function construct_QP(mpc)
     δ_max  = Parameter{Vector{Float64},typeof(identity),true}[]
     Δδ_min = Parameter{Vector{Float64},typeof(identity),true}[]
     Δδ_max = Parameter{Vector{Float64},typeof(identity),true}[]
+    Mδ_HJI = Parameter{Matrix{Float64},typeof(identity),true}[]
+    bδ_HJI = Parameter{Vector{Float64},typeof(identity),true}[]
 
     q = [Variable(m) for i in 1:4, t in 1:N_short+N_long+1]
     δ = [Variable(m) for i in 1:1, t in 1:N_short+N_long+1]
@@ -67,6 +74,11 @@ function construct_QP(mpc)
     for t in 1:size(σ, 2)
         σt = σ[:,t]
         @constraint(m, σt >= 0.)
+    end
+    HJI_slacks = [Variable(m) for i in 1:1, t in 1:N_short]
+    for t in 1:size(HJI_slacks, 2)
+        HJI_slackst = HJI_slacks[:,t]
+        @constraint(m, HJI_slackst >= 0.)
     end
 
     δ⁺ = δ[1,2:end]
@@ -87,6 +99,11 @@ function construct_QP(mpc)
         qt1 = q[:,t+1]
         δ0  = δ[:,t]
         @constraint(m, At*qt0 + Bt*δ0 + ct == qt1)
+        δ1  = δ[:,t+1]
+        HJI_slackst = HJI_slacks[:,t]
+        Mδ_HJIt = push!(Mδ_HJI, Parameter(fill(0.0,1,1), m))[end]
+        bδ_HJIt = push!(bδ_HJI, Parameter([1.0], m))[end]
+        @constraint(m, Mδ_HJIt * δ1 + bδ_HJIt >= -HJI_slackst)
     end
 
     for t in N_short+1:N_short+N_long
@@ -128,7 +145,8 @@ function construct_QP(mpc)
     e    = q[4,2:end]
     σ1   = σ[1,:]
     σ2   = σ[2,:]
-    obj  = @expression transpose(Δψ)*Q_Δψ*Δψ + transpose(e)*Q_e*e + transpose(δ⁺)*R_δ*δ⁺ + transpose(Δδ)*R_Δδ*Δδ + W_β⋅σ1 + W_r⋅σ2
+    HJI_slacks_vec = HJI_slacks[1,:]
+    obj  = @expression transpose(Δψ)*Q_Δψ*Δψ + transpose(e)*Q_e*e + transpose(δ⁺)*R_δ*δ⁺ + transpose(Δδ)*R_Δδ*Δδ + W_β⋅σ1 + W_r⋅σ2 + W_HJI⋅HJI_slacks_vec
     @objective(m, Minimize, obj)
-    m, QP_Variables(q, δ, σ), QP_Parameters(Q_Δψ, Q_e, R_δ, R_Δδ, W_β, W_r, curr_q, curr_δ, A, B, B0, B1, c, H, G, δ_min, δ_max, Δδ_min, Δδ_max)
+    m, QP_Variables(q, δ, σ, HJI_slacks), QP_Parameters(Q_Δψ, Q_e, R_δ, R_Δδ, W_β, W_r, W_HJI, curr_q, curr_δ, A, B, B0, B1, c, H, G, δ_min, δ_max, Δδ_min, Δδ_max, Mδ_HJI, bδ_HJI)
 end

@@ -1,9 +1,9 @@
 @rosimport osprey.msg: path
-@rosimport asl_prototyping.msg: VehicleTrajectory
+@rosimport asl_prototyping.msg: VehicleTrajectory, XYThV
 @rosimport auto_bridge.msg: from_autobox, to_autobox
 rostypegen(@__MODULE__)
 import .osprey.msg: path
-import .asl_prototyping.msg: VehicleTrajectory
+import .asl_prototyping.msg: VehicleTrajectory, XYThV
 import .auto_bridge.msg: from_autobox, to_autobox
 
 TrajectoryTube(p::path) = TrajectoryTube{Float64}(
@@ -63,10 +63,21 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
         try
             MPC_time_steps!(mpc, t)
             compute_linearization_nodes!(mpc)
+
+            relative_state = HJIRelativeState(mpc.current_state, mpc.other_car_state)
+            if in_cache(mpc.V_cache, relative_state)
+                RobotOS.loginfo("Pigeon MPC: HJI value function = $(mpc.V_cache[relative_state...])")
+            else
+                RobotOS.loginfo("Pigeon MPC: HJI value function = N/A")
+            end
+
+            compute_reachability_constraint!(mpc)
             update_QP!(mpc)
             solve!(mpc.model)
         catch err
-            RobotOS.logwarn("OSQP Error: $err")
+            # RobotOS.logwarn("OSQP Error: $err")
+            @show err
+            @show stacktrace(catch_backtrace())
         end
     end
 
@@ -89,6 +100,7 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
                         "($(to_autobox_msg.delta_cmd_rad), $(to_autobox_msg.fxf_cmd_N), $(to_autobox_msg.fxr_cmd_N))" *
                         "; using previous control "*
                         "($(mpc.current_control.δ), $(mpc.current_control.Fxf), $(mpc.current_control.Fxr))")
+        SimpleQP.initialize!(mpc.model)
         to_autobox_msg.delta_cmd_rad = mpc.current_control.δ
         to_autobox_msg.fxf_cmd_N     = mpc.current_control.Fxf
         to_autobox_msg.fxr_cmd_N     = mpc.current_control.Fxr
@@ -100,6 +112,9 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
         publish(to_autobox_pub, to_autobox_msg)
     end
 end
+function other_car_callback(msg::XYThV, mpc=X1MPC)
+    mpc.other_car_state = SimpleCarState(msg.x, msg.y, msg.th - pi/2, msg.v)
+end
 
 ### ROS node init
 function start_ROS_node()
@@ -108,5 +123,6 @@ function start_ROS_node()
     Subscriber{path}("/des_path", nominal_trajectory_callback, queue_size=1)
     Subscriber{VehicleTrajectory}("/des_traj", nominal_trajectory_callback, queue_size=1)
     Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub,), queue_size=1)
+    Subscriber{XYThV}("/xbox_car/xythv", other_car_callback, queue_size=1)    # TODO: abstract with a republisher
     @spawn spin()
 end

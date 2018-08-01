@@ -13,6 +13,7 @@ import MathOptInterface
 const MOI = MathOptInterface
 using SimpleQP
 using RobotOS
+using MAT
 
 include("math.jl")
 include("trajectories.jl")
@@ -34,9 +35,17 @@ include("ros_integration.jl")
 
 function __init__()
     @rosimport osprey.msg: path                             # PyObject initialization
-    @rosimport asl_prototyping.msg: VehicleTrajectory
+    @rosimport asl_prototyping.msg: VehicleTrajectory, XYThV
     @rosimport auto_bridge.msg: from_autobox, to_autobox
     SimpleQP.initialize!(X1MPC.model)    # Refresh pointer to OSQP model
+
+    HJIdata = matread(joinpath(@__DIR__, "BicycleCAvoid.mat"))
+    X1MPC.∇V_cache = interpolate(tuple(vec.(HJIdata["avoid_set"]["g"]["vs"])...),
+                           SVector.(HJIdata["avoid_set"]["deriv"]...),
+                           Gridded(Linear()))
+    X1MPC.V_cache = interpolate(tuple(vec.(HJIdata["avoid_set"]["g"]["vs"])...),
+                          HJIdata["avoid_set"]["data"][1,1],
+                          Gridded(Linear()))
 
     # more compilation
     MPC_time_steps!(X1MPC, 0.)

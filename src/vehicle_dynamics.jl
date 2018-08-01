@@ -256,6 +256,7 @@ struct ControlParams{T}
     Q_e::T
     W_β::T
     W_r::T
+    W_HJI::T
 
     R_δ::T
     R_Δδ::T
@@ -271,11 +272,66 @@ function ControlParams(vehicle::Dict;
                        Q_e=1.0,
                        W_β=50/(10*π/180),
                        W_r=50.0,
+                       W_HJI=100.0,
                        R_δ=0.0,
                        R_Δδ=0.01/(10*π/180)^2)
     ControlParams((vehicle[n] for n in fieldnames(ControlParams)[1:6])..., V_min, V_max, k_V, k_s,
-                  δ_hwmax, δ̇_max, Q_Δψ, Q_e, W_β, W_r, R_δ, R_Δδ)
+                  δ_hwmax, δ̇_max, Q_Δψ, Q_e, W_β, W_r, W_HJI, R_δ, R_Δδ)
 end
+
+function relative_dynamics(B::BicycleModel, q, uR, uH)
+    ΔE, ΔN, Δψ, Ux, Uy, V, r = q
+    δ, Fxf, Fxr = uR
+    ω, a = uH
+    bicycle_dynamics = B(BicycleState(ΔE, ΔN, Δψ, Ux, Uy, r), uR)
+    SVector(
+        V*cos(Δψ) - Ux + ΔN*r,
+        V*sin(Δψ) - Uy - ΔE*r,
+        ω - r,
+        bicycle_dynamics[4],
+        bicycle_dynamics[5],
+        a,
+        bicycle_dynamics[6]
+    )
+end
+
+function optimal_disturbance(vehicle, relative_state, ∇V, dMode=:min)
+    sgn = (dMode == :min ? -1 : 1)
+
+    V = relative_state[6]
+    lam_w = ∇V[3]           # psi_rel dot
+    lam_Ax = ∇V[6]          # v_dot
+    lam_Ay = lam_w / V
+    lam_norm = hypot(lam_Ax, lam_Ay)
+    maxA = vehicle[:maxA_approx]
+
+    if lam_norm < 0.001
+        return SVector{2,Float64}(0, 0)
+    else
+        desAx = sgn * lam_Ax * maxA / lam_norm;
+        desAy = sgn * lam_Ay * maxA / lam_norm;
+        maxAx = min(vehicle[:maxAx], vehicle[:maxP2mx] / V);  # max longitudinal acceleration
+        maxAy = vehicle[:w_per_v_max_lowspeed] * V * V;
+        if desAx > maxAx
+            if abs(desAy) < maxAy
+                maxAy = min(maxAy, sqrt(maxA*maxA - maxAx*maxAx))
+            end
+            return SVector{2,Float64}(copysign(maxAy, desAy)/V, maxAx)
+        else
+            if abs(desAy) > maxAy
+                if desAx > 0
+                    maxAx = min(sqrt(maxA*maxA - maxAy*maxAy), maxAx)
+                    return SVector{2,Float64}(copysign(maxAy, desAy)/V, maxAx)
+                else
+                    return SVector{2,Float64}(copysign(maxAy, desAy)/V, -sqrt(maxA*maxA - maxAy*maxAy))
+                end
+            else
+                return SVector{2,Float64}(desAy/V, maxAx)
+            end
+        end
+    end
+end
+
 
 # Estimates for Longitudinal Dynamics
 function steady_state_estimates(B::BicycleModel{T}, U::ControlParams{T}, κ, A_tan, V, num_iters=4, r=V*κ, β0=T(0), δ0=T(0), Fyf0 = T(0)) where {T}

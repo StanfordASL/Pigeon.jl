@@ -44,5 +44,20 @@ function X1()
     X1[:fwb_frac] = 0.6                                                # front wheel brake fraction for implementing desired Fx
     X1[:rwb_frac] = 1 - X1[:fwb_frac]                                  # rear wheel brake fraction for implementing desired Fx
 
+
+    ## Janky HJI stuff
+    # Maximum Brake Force
+    X1[:minFx] = max(-X1[:m]*GRAVITY*X1[:a]*X1[:μ]/(X1[:L]*X1[:rwb_frac] + X1[:μ]*X1[:h]),
+                     -X1[:m]*GRAVITY*X1[:b]*X1[:μ]/(X1[:L]*X1[:fwb_frac] - X1[:μ]*X1[:h]))
+    X1[:maxAx] = X1[:maxFx]/X1[:m]
+    X1[:minAx] = X1[:minFx]/X1[:m]
+    X1[:maxP2mx] = X1[:maxPower]/X1[:m]
+
+    # Maximum Steering
+    X1[:d_max] = 18*pi/180;
+    X1[:w_per_v_max_lowspeed] = tan(X1[:d_max])/X1[:L]
+
+    X1[:maxA_approx] = 0.9*X1[:μ]*GRAVITY
+
     X1
 end
