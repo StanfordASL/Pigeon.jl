@@ -41,7 +41,7 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
     end
     if isnan(mpc.time_offset)
         RobotOS.loginfo("Pigeon MPC: time_offset not set, running in path tracking mode")
-        _, _, t = path_coordinates(mpc.trajectory, SVector(mpc.current_state.E, mpc.current_state.N))
+        _, _, t = path_coordinates(mpc.trajectory, mpc.current_state)
     else
         t = convert(Float64, msg.header.stamp) - mpc.time_offset
         if t < 0 || t > mpc.trajectory.t[end]
@@ -61,10 +61,10 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
 
     t_elapsed = @elapsed begin
         try
-            MPC_time_steps!(mpc, t)
+            compute_time_steps!(mpc, t)
             compute_linearization_nodes!(mpc)
             update_QP!(mpc)
-            solve!(mpc.model)
+            solve!(mpc)
         catch err
             RobotOS.logwarn("OSQP Error: $err")
         end
@@ -75,15 +75,16 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
     # RobotOS.loginfo("deltas: $(value.(mpc.model, mpc.variables.δ))")
     mpc.heartbeat += 1
 
-    s, e, _ = path_coordinates(mpc.trajectory, SVector(mpc.current_state.E, mpc.current_state.N))
+    s, e, _ = path_coordinates(mpc.trajectory, mpc.current_state)
+    u_next  = get_next_control(mpc)
     to_autobox_msg.header.stamp  = RobotOS.now()
     to_autobox_msg.post_flag     = 1    # TODO: check for OSQP failure
     to_autobox_msg.heartbeat     = mpc.heartbeat
     to_autobox_msg.s_m           = s
     to_autobox_msg.e_m           = e
-    to_autobox_msg.delta_cmd_rad = value(mpc.model, mpc.variables.δ[2])
-    to_autobox_msg.fxf_cmd_N     = mpc.us[2].Fxf
-    to_autobox_msg.fxr_cmd_N     = mpc.us[2].Fxr
+    to_autobox_msg.delta_cmd_rad = u_next.δ
+    to_autobox_msg.fxf_cmd_N     = u_next.Fxf
+    to_autobox_msg.fxr_cmd_N     = u_next.Fxr
     if isnan(to_autobox_msg.delta_cmd_rad) || isnan(to_autobox_msg.fxf_cmd_N) || isnan(to_autobox_msg.fxr_cmd_N)
         RobotOS.loginfo("Pigeon MPC: OSQP returned NaNs " *
                         "($(to_autobox_msg.delta_cmd_rad), $(to_autobox_msg.fxf_cmd_N), $(to_autobox_msg.fxr_cmd_N))" *
