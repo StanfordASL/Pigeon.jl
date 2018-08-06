@@ -44,9 +44,11 @@ mutable struct TrajectoryTrackingMPC{T,C,Q,U,P,QPP,QPV}
     us::Vector{U}
     ps::Vector{P}
 
+    tracking_dynamics::VehicleModel{T}
     model::Model{T,OSQPOptimizer}
     variables::QPV
     parameters::QPP
+    solved::Bool
 end
 
 compute_time_steps!(mpc::TrajectoryTrackingMPC, t0) = compute_time_steps!(mpc.time_steps, t0)
@@ -55,7 +57,7 @@ compute_linearization_nodes!(mpc::TrajectoryTrackingMPC) = compute_linearization
 
 update_QP!(mpc::TrajectoryTrackingMPC) = update_QP!(mpc, mpc.parameters)
 
-SimpleQP.solve!(mpc::TrajectoryTrackingMPC) = solve!(mpc.model)
+SimpleQP.solve!(mpc::TrajectoryTrackingMPC) = (solve!(mpc.model); mpc.solved = true)
 
 get_next_control(mpc::TrajectoryTrackingMPC) = get_next_control(mpc, mpc.variables)
 

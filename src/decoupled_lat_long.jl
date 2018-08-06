@@ -37,24 +37,25 @@ function DecoupledTrajectoryTrackingMPC(vehicle::Dict{Symbol,T}, trajectory::Tra
     time_steps = MPCTimeSteps(N_short, N_long, dt_short, dt_long, use_correction_step)
 
     N = 1 + N_short + N_long
-    qs = rand(TrackingBicycleState{T}, N)    # not zeros so that construct_lateral_tracking_QP below works
+    qs = rand(LateralTrackingBicycleState{T}, N)    # not zeros so that construct_lateral_tracking_QP below works
     us = rand(BicycleControl2{T}, N)
-    ps = rand(TrackingBicycleParams{T}, N)
-    model, variables, parameters = construct_lateral_tracking_QP(dynamics, control_params, time_steps, qs, us, ps)
+    ps = rand(LateralTrackingBicycleParams{T}, N)
+    tracking_dynamics = VehicleModel(vehicle, LateralTrackingBicycleModel(vehicle))
+    model, variables, parameters = construct_lateral_tracking_QP(tracking_dynamics, control_params, time_steps, qs, us, ps)
     mpc = TrajectoryTrackingMPC(vehicle, trajectory, dynamics, control_params,
                                 current_state, current_control, 0, NaN,
                                 time_steps,
                                 qs, us, ps,
-                                model, variables, parameters)
+                                tracking_dynamics, model, variables, parameters, false)
     mpc
 end
 
 function compute_linearization_nodes!(mpc::TrajectoryTrackingMPC{T},
-                                      qs::Vector{TrackingBicycleState{T}},
+                                      qs::Vector{LateralTrackingBicycleState{T}},
                                       us::Vector{BicycleControl2{T}},
-                                      ps::Vector{TrackingBicycleParams{T}}) where {T}
+                                      ps::Vector{LateralTrackingBicycleParams{T}}) where {T}
     traj = mpc.trajectory
-    X  = mpc.dynamics
+    X  = mpc.tracking_dynamics
     U  = mpc.control_params
     q0 = mpc.current_state
     u0 = mpc.current_control
@@ -76,16 +77,23 @@ function compute_linearization_nodes!(mpc::TrajectoryTrackingMPC{T},
         A_des = tj.A + U.k_V*(tj.V - V)/τ + (isnan(mpc.time_offset) ? 0 : U.k_s*(traj(ts[i]).s - s)/τ/τ)   # alternatively, - U.k_t*(tj.t - ts[i])/τ/τ
         A_des = min(max(A_des, (U.V_min - V)/τ), (U.V_max - V)/τ)
         if i == 1
-            q = TrackingBicycleState(q0.Uy, q0.r, adiff(q0.ψ, tj.ψ), e0)    # to match paper should be (..., 0.0, 0.0)
+            q = LateralTrackingBicycleState(q0.Uy, q0.r, adiff(q0.ψ, tj.ψ), e0)    # to match paper should be (..., 0.0, 0.0)
             u = BicycleControl2(u0)
-            p = TrackingBicycleParams(q0.Ux, κ, T(0), T(0))
-            q̇ = X(q0, BicycleControl2(u0), LocalRoadGeometry(tj))
+            p = LateralTrackingBicycleParams(q0.Ux, κ, T(0), T(0))
+            q̇ = mpc.dynamics(q0, BicycleControl2(u0), LocalRoadGeometry(tj))
             A = (q̇[4] - q0.r*q0.Uy)*cos(β0) + (q̇[5] + q0.r*q0.Ux)*sin(β0)
         elseif i <= N_short+1
-            q = TrackingBicycleState(q0.Uy, q0.r, adiff(q0.ψ, tj.ψ), e0)    # to match paper should be (..., 0.0, 0.0)
-            _, u, p, A = steady_state_estimates(X, V, A_des, κ, num_iters=1, r=r0, β0=β0, δ0=δ0, Fyf0=Fyf0)
+            q = LateralTrackingBicycleState(q0.Uy, q0.r, adiff(q0.ψ, tj.ψ), e0)    # to match paper should be (..., 0.0, 0.0)
+            est = steady_state_estimates(X, V, A_des, κ, num_iters=1, r=r0, β0=β0, δ0=δ0, Fyf0=Fyf0)
+            u = BicycleControl2(est.δ, est.Fxf + est.Fxr)
+            p = LateralTrackingBicycleParams(est.Ux, κ, T(0), T(0))
+            A = est.A
         else
-            q, u, p, A = steady_state_estimates(X, V, A_des, κ)
+            est = steady_state_estimates(X, V, A_des, κ)
+            q = LateralTrackingBicycleState(est.Uy, est.r, -est.β, T(0))
+            u = BicycleControl2(est.δ, est.Fxf + est.Fxr)
+            p = LateralTrackingBicycleParams(est.Ux, κ, T(0), T(0))
+            A = est.A
         end
         qs[i] = q
         us[i] = u
@@ -219,7 +227,7 @@ function construct_lateral_tracking_QP(dynamics::VehicleModel{T}, control_params
 end
 
 function update_QP!(mpc::TrajectoryTrackingMPC, QPP::LateralTrackingQPParams)
-    dynamics = mpc.dynamics
+    dynamics = mpc.tracking_dynamics
     control_params  = mpc.control_params
     time_steps = mpc.time_steps
     N_short, N_long, dt = time_steps.N_short, time_steps.N_long, time_steps.dt

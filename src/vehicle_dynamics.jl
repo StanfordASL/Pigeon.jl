@@ -1,42 +1,12 @@
 import StaticArrays: SUnitRange
 
-@maintain_type struct BicycleState{T} <: FieldVector{6,T}
-    E::T    # world frame "x" position of CM
-    N::T    # world frame "y" position of CM
-    ψ::T    # world frame heading of vehicle
-    Ux::T   # body frame longitudinal speed
-    Uy::T   # body frame lateral speed
-    r::T    # yaw rate (dψ/dt)
-end
-
-@maintain_type struct LocalRoadGeometry{T} <: FieldVector{4,T}
-    ψ::T    # nominal trajectory heading
-    κ::T    # nominal trajectory (local) curvature
-    θ::T    # nominal trajectory (local) pitch grade
-    ϕ::T    # nominal trajectory (local) roll grade
-end
-
-@maintain_type struct TrackingBicycleState{T} <: FieldVector{4,T}
-    Uy::T   # body frame lateral speed
-    r::T    # yaw rate
-    Δψ::T   # heading error (w.r.t. nominal trajectory)
-    e::T    # lateral error (w.r.t. nominal trajectory)
-end
-
-@maintain_type struct TrackingBicycleParams{T} <: FieldVector{4,T}
-    Ux::T   # body frame longitudinal speed
-    κ::T    # nominal trajectory (local) curvature
-    θ::T    # nominal trajectory (local) pitch grade
-    ϕ::T    # nominal trajectory (local) roll grade
-end
-
-@maintain_type struct BicycleControl{T} <: FieldVector{3,T}
+@maintain_type struct BicycleControl{T} <: FieldVector{3,T}    # common to all models below
     δ::T    # steering angle
     Fxf::T  # front tire longitudinal force (tire frame)
     Fxr::T  # rear tire longidutinal force (tire frame)
 end
 
-struct BicycleModel{T} <: DifferentialDynamics
+struct BicycleModelParams{T}
     # Dimensions
     L::T    # wheelbase
     a::T    # distance from front axle to CG
@@ -58,7 +28,10 @@ struct BicycleModel{T} <: DifferentialDynamics
     Cd1::T  # linear drag coefficint
     Cd2::T  # quadratic "aero" drag coefficint
 end
-BicycleModel(vehicle::Dict) = BicycleModel((vehicle[n] for n in fieldnames(BicycleModel))...)
+BicycleModelParams(vehicle::Dict) = BicycleModelParams((vehicle[n] for n in fieldnames(BicycleModelParams))...)
+
+abstract type AbstractBicycleModel{T} <: DifferentialDynamics end
+Base.getproperty(B::AbstractBicycleModel, name::Symbol) = getproperty(getfield(B, :params), name)    # potentially not a great idea...
 
 # Coupled Tire Forces - Simplified Model
 @inline function fialatiremodel(α, Cα, μ, Fx, Fz)
@@ -90,7 +63,7 @@ end
     end
 end
 
-@inline function lateral_tire_forces(B::BicycleModel, αf, αr, Fxf, Fxr, sδ, cδ, num_iters=3)
+@inline function lateral_tire_forces(B::AbstractBicycleModel, αf, αr, Fxf, Fxr, sδ, cδ, num_iters=3)
     L, a, b, h, m, μ, Cαf, Cαr, G = B.L, B.a, B.b, B.h, B.m, B.μ, B.Cαf, B.Cαr, B.G
     Fyf = zero(Fxf)
     Fx = Fxf*cδ - Fyf*sδ + Fxr
@@ -104,7 +77,7 @@ end
     Fyf, Fyr
 end
 
-@inline function lateral_tire_forces(B::BicycleModel, q::StaticVector{6}, u::StaticVector{3}, num_iters=3)
+@inline function lateral_tire_forces(B::AbstractBicycleModel, q::StaticVector{6}, u::StaticVector{3}, num_iters=3)
     Ux, Uy, r = q[4], q[5], q[6]
     δ, Fxf, Fxr = u[1], u[2], u[3]
     a, b = B.a, B.b
@@ -116,6 +89,27 @@ end
 end
 
 # Bicycle Model
+struct BicycleModel{T} <: AbstractBicycleModel{T}
+    params::BicycleModelParams{T}
+end
+BicycleModel(vehicle::Dict) = BicycleModel(BicycleModelParams(vehicle))
+
+@maintain_type struct BicycleState{T} <: FieldVector{6,T}
+    E::T    # world frame "x" position of CM
+    N::T    # world frame "y" position of CM
+    ψ::T    # world frame heading of vehicle
+    Ux::T   # body frame longitudinal speed
+    Uy::T   # body frame lateral speed
+    r::T    # yaw rate (dψ/dt)
+end
+
+@maintain_type struct LocalRoadGeometry{T} <: FieldVector{4,T}
+    ψ::T    # nominal trajectory heading
+    κ::T    # nominal trajectory (local) curvature
+    θ::T    # nominal trajectory (local) pitch grade
+    ϕ::T    # nominal trajectory (local) roll grade
+end
+
 function (B::BicycleModel{T})((E, N, ψ, Ux, Uy, r)::StaticVector{6},
                               (δ, Fxf, Fxr)::StaticVector{3},
                               (ψᵣ, κ, θ, ϕ)::StaticVector{4}=zeros(LocalRoadGeometry{T})) where {T}
@@ -141,13 +135,78 @@ function (B::BicycleModel{T})((E, N, ψ, Ux, Uy, r)::StaticVector{6},
     )
 end
 (B::BicycleModel{T})(q::StaticVector{6}, ur::StaticVector{7}) where {T} = B(q, ur[SUnitRange(1,3)], ur[SUnitRange(4,7)])
-(B::BicycleModel{T})(qu::StaticVector{9}, r::StaticVector{4}=zeros(LocalRoadGeometry{T})) where {T} = B(qu[SUnitRange(1,6)], qu[SUnitRange(7,9)], r)
-(B::BicycleModel)(qur::StaticVector{13}) = B(qur[SUnitRange(1,6)], qur[SUnitRange(7,9)], qur[SUnitRange(10,13)])
+
+# Tracking Bicycle Model
+struct TrackingBicycleModel{T} <: AbstractBicycleModel{T}
+    params::BicycleModelParams{T}
+end
+TrackingBicycleModel(vehicle::Dict) = TrackingBicycleModel(BicycleModelParams(vehicle))
+
+@maintain_type struct TrackingBicycleState{T} <: FieldVector{4,T}
+    Δs::T   # longitudinal error (w.r.t. nominal trajectory)
+    Ux::T   # body frame longitudinal speed
+    Uy::T   # body frame lateral speed
+    r::T    # yaw rate
+    Δψ::T   # heading error (w.r.t. nominal trajectory)
+    e::T    # lateral error (w.r.t. nominal trajectory)
+end
+
+@maintain_type struct TrackingBicycleParams{T} <: FieldVector{4,T}
+    V::T    # nominal trajectory speed
+    κ::T    # nominal trajectory (local) curvature
+    θ::T    # nominal trajectory (local) pitch grade
+    ϕ::T    # nominal trajectory (local) roll grade
+end
+
+function (B::TrackingBicycleModel{T})((Δs, Ux, Uy, r, Δψ, e)::StaticVector{6},
+                                      (δ, Fxf, Fxr)::StaticVector{3},
+                                      (V, κ, θ, ϕ)::StaticVector{4}=zeros(TrackingBicycleParams{T})) where {T}
+    a, b, m, Izz, Cd0, Cd1, Cd2 = B.a, B.b, B.m, B.Izz, B.Cd0, B.Cd1, B.Cd2
+
+    sΔψ, cΔψ = sincos(Δψ)
+    sδ, cδ = sincos(δ)
+    αf = atan(Uy + a*r, Ux) - δ
+    αr = atan(Uy - b*r, Ux)
+    Fyf, Fyr = lateral_tire_forces(B, αf, αr, Fxf, Fxr, sδ, cδ)
+    Fx_drag = -Cd0 - Ux*(Cd1 + Cd2*Ux)
+    Fx_grade = 0    # TODO: figure out how roll/pitch are ordered
+    Fy_grade = 0
+    F̃xf = Fxf*cδ - Fyf*sδ
+    F̃yf = Fyf*cδ + Fxf*sδ
+    SVector(
+        Ux*cΔψ - Uy*sΔψ,
+        (F̃xf + Fxr + Fx_drag + Fx_grade)/m + r*Uy,
+        (F̃yf + Fyr + Fy_grade)/m - r*Ux,
+        (a*F̃yf - b*Fyr)/Izz,
+        r - Ux*κ,
+        Ux*sΔψ + Uy*cΔψ
+    )
+end
+(B::TrackingBicycleModel{T})(q::StaticVector{6}, ur::StaticVector{7}) where {T} = B(q, ur[SUnitRange(1,3)], ur[SUnitRange(4,7)])
 
 # Lateral Tracking Bicycle Model
-function (B::BicycleModel{T})((Uy, r, Δψ, e)::StaticVector{4},
-                              (δ, Fxf, Fxr)::StaticVector{3},
-                              (Ux, κ, θ, ϕ)::StaticVector{4}=zeros(TrackingBicycleParams{T})) where {T}
+struct LateralTrackingBicycleModel{T} <: AbstractBicycleModel{T}
+    params::BicycleModelParams{T}
+end
+LateralTrackingBicycleModel(vehicle::Dict) = LateralTrackingBicycleModel(BicycleModelParams(vehicle))
+
+@maintain_type struct LateralTrackingBicycleState{T} <: FieldVector{4,T}
+    Uy::T   # body frame lateral speed
+    r::T    # yaw rate
+    Δψ::T   # heading error (w.r.t. nominal trajectory)
+    e::T    # lateral error (w.r.t. nominal trajectory)
+end
+
+@maintain_type struct LateralTrackingBicycleParams{T} <: FieldVector{4,T}
+    Ux::T   # body frame longitudinal speed
+    κ::T    # nominal trajectory (local) curvature
+    θ::T    # nominal trajectory (local) pitch grade
+    ϕ::T    # nominal trajectory (local) roll grade
+end
+
+function (B::LateralTrackingBicycleModel{T})((Uy, r, Δψ, e)::StaticVector{4},
+                                             (δ, Fxf, Fxr)::StaticVector{3},
+                                             (Ux, κ, θ, ϕ)::StaticVector{4}=zeros(LateralTrackingBicycleParams{T})) where {T}
     a, b, m, Izz = B.a, B.b, B.m, B.Izz
 
     sΔψ, cΔψ = sincos(Δψ)
@@ -164,12 +223,10 @@ function (B::BicycleModel{T})((Uy, r, Δψ, e)::StaticVector{4},
         Ux*sΔψ + Uy*cΔψ
     )
 end
-(B::BicycleModel{T})(q::StaticVector{4}, up::StaticVector{7}) where {T} = B(q, up[SUnitRange(1,3)], up[SUnitRange(4,7)])
-(B::BicycleModel{T})(qu::StaticVector{7}, p::StaticVector{4}=zeros(TrackingBicycleParams{T})) where {T} = B(qu[SUnitRange(1,4)], qu[SUnitRange(5,7)], p)
-(B::BicycleModel)(qup::StaticVector{11}) = B(qup[SUnitRange(1,4)], qup[SUnitRange(5,7)], qup[SUnitRange(8,11)])
+(B::LateralTrackingBicycleModel{T})(q::StaticVector{4}, up::StaticVector{7}) where {T} = B(q, up[SUnitRange(1,3)], up[SUnitRange(4,7)])
 
 # Uy/r Stability Envelope
-@inline function stable_limits(B::BicycleModel, Ux, Fxf, Fxr)
+@inline function stable_limits(B::AbstractBicycleModel, Ux, Fxf, Fxr)
     L, a, b, h, m, μ, Cαf, Cαr, G = B.L, B.a, B.b, B.h, B.m, B.μ, B.Cαf, B.Cαr, B.G
 
     Fx = Fxf + Fxr
@@ -241,25 +298,23 @@ function apply_control_limits(CL::ControlLimits, (δ, Fx)::StaticVector{2}, Ux)
                     max(min(Fx, Fx_max, Px_max/Ux), Fx_min))
 end
 
-struct VehicleModel{T} <: DifferentialDynamics
-    bicycle_model::BicycleModel{T}
+struct VehicleModel{T,B<:AbstractBicycleModel{T}} <: DifferentialDynamics
+    bicycle_model::B
     longitudinal_params::LongitudinalActuationParams{T}
     control_limits::ControlLimits{T}
 end
-VehicleModel(vehicle::Dict) = VehicleModel(BicycleModel(vehicle), LongitudinalActuationParams(vehicle), ControlLimits(vehicle))
+VehicleModel(vehicle::Dict, B=BicycleModel(vehicle)) = VehicleModel(B, LongitudinalActuationParams(vehicle), ControlLimits(vehicle))
 
-## Full Bicycle Dynamics
-(X::VehicleModel{T})(q::StaticVector{6}, u::StaticVector{2}, p::StaticVector{4}=zeros(LocalRoadGeometry{T})) where {T} =
-    X.bicycle_model(q, BicycleControl(X.longitudinal_params, apply_control_limits(X.control_limits, u, q[4])), p)
-(X::VehicleModel{T})(q::StaticVector{6}, ur::StaticVector{6}) where {T} = X(q, ur[SUnitRange(1,2)], ur[SUnitRange(3,6)])
-(X::VehicleModel{T})(qu::StaticVector{8}, r::StaticVector{4}=zeros(LocalRoadGeometry{T})) where {T} = X(qu[SUnitRange(1,6)], qu[SUnitRange(7,8)], r)
-(X::VehicleModel)(qur::StaticVector{12}) = X(qur[SUnitRange(1,6)], qur[SUnitRange(7,8)], qur[SUnitRange(9,12)])
-## Tracking Bicycle Dynamics
-(X::VehicleModel{T})(q::StaticVector{4}, u::StaticVector{2}, p::StaticVector{4}=zeros(TrackingBicycleParams{T})) where {T} =
-    X.bicycle_model(q, BicycleControl(X.longitudinal_params, apply_control_limits(X.control_limits, u, p[1])), p)
-(X::VehicleModel{T})(q::StaticVector{4}, up::StaticVector{6}) where {T} = X(q, up[SUnitRange(1,2)], up[SUnitRange(3,6)])
-(X::VehicleModel{T})(qu::StaticVector{6}, p::StaticVector{4}=zeros(TrackingBicycleParams{T})) where {T} = X(qu[SUnitRange(1,4)], qu[SUnitRange(5,6)], p)
-(X::VehicleModel)(qup::StaticVector{10}) = X(qup[SUnitRange(1,4)], qup[SUnitRange(5,6)], qup[SUnitRange(7,10)])
+get_Ux(B::BicycleModel, q, u, p) = q[4]
+get_Ux(B::TrackingBicycleModel, q, u, p) = q[2]
+get_Ux(B::LateralTrackingBicycleModel, q, u, p) = p[1]
+function (X::VehicleModel{T})(q, u, p=zeros(SVector{4,T})) where {T}    # TODO: not necessarily always the right-sized p
+    Ux = get_Ux(X.bicycle_model, q, u, p)
+    X.bicycle_model(q, BicycleControl(X.longitudinal_params, apply_control_limits(X.control_limits, u, Ux)), p)
+end
+(X::VehicleModel{T,BicycleModel{T}})(q::StaticVector{6}, ur::StaticVector{6}) where {T} = X(q, ur[SUnitRange(1,2)], ur[SUnitRange(3,6)])
+(X::VehicleModel{T,TrackingBicycleModel{T}})(q::StaticVector{6}, ur::StaticVector{6}) where {T} = X(q, ur[SUnitRange(1,2)], ur[SUnitRange(3,6)])
+(X::VehicleModel{T,LateralTrackingBicycleModel{T}})(q::StaticVector{4}, ur::StaticVector{6}) where {T} = X(q, ur[SUnitRange(1,2)], ur[SUnitRange(3,6)])
 
 # Estimates for Longitudinal Dynamics
 function steady_state_estimates(X::VehicleModel{T}, V, A_tan, κ;
@@ -330,5 +385,7 @@ function steady_state_estimates(X::VehicleModel{T}, V, A_tan, κ;
         β = atan(tanαr + b*r/Ux)
     end
 
-    TrackingBicycleState(Uy, r, -β, 0.0), BicycleControl2(δ, Fxf + Fxr), TrackingBicycleParams(Ux, κ, 0.0, 0.0), A_tan
+    sβ, cβ = sincos(β)
+    Ux, Uy = V*cβ, V*sβ
+    (β=β, Ux=Ux, Uy=Uy, r=r, A=A_tan, δ=δ, Fxf=Fxf, Fxr=Fxr)
 end

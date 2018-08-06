@@ -19,10 +19,12 @@ const latest_trajectory = fill(straight_trajectory(30., 5.))
 function nominal_trajectory_callback(msg::path, mpc=X1MPC)
     latest_trajectory[] = TrajectoryTube(msg)
     mpc.time_offset = NaN
+    mpc.solved = false
 end
 function nominal_trajectory_callback(msg::VehicleTrajectory, mpc=X1MPC)
     latest_trajectory[] = TrajectoryTube(msg)
     mpc.time_offset = convert(Float64, msg.header.stamp)
+    mpc.solved = false
 end
 
 ### /to_autobox
@@ -97,6 +99,7 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
         to_autobox_msg.delta_cmd_rad = 0    # ensures that if we get 2 NaNs in a row, we return to 0 control
         to_autobox_msg.fxf_cmd_N     = 0
         to_autobox_msg.fxr_cmd_N     = 0
+        mpc.solved = false    # any warm starting should ignore the previous solution
     else
         publish(to_autobox_pub, to_autobox_msg)
     end
