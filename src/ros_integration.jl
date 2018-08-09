@@ -14,15 +14,18 @@ TrajectoryTube(p::VehicleTrajectory) = TrajectoryTube{Float64}(
     p.t, p.s, p.V, p.A, p.E, p.N, p.heading, p.curvature, p.grade, p.bank, p.edge_L, p.edge_R
 )
 
-### /des_path
+### /des_path and /des_traj
 const latest_trajectory = fill(straight_trajectory(30., 5.))
-function nominal_trajectory_callback(msg::path, mpc=X1MPC)
+const tracking_mode = fill(:path)
+function nominal_trajectory_callback(msg::path, mpc=X1DMPC)                 # /des_traj
     latest_trajectory[] = TrajectoryTube(msg)
+    tracking_mode[] = :path
     mpc.time_offset = NaN
     mpc.solved = false
 end
-function nominal_trajectory_callback(msg::VehicleTrajectory, mpc=X1MPC)
+function nominal_trajectory_callback(msg::VehicleTrajectory, mpc=X1CMPC)    # /des_path
     latest_trajectory[] = TrajectoryTube(msg)
+    tracking_mode[] = :traj
     mpc.time_offset = convert(Float64, msg.header.stamp)
     mpc.solved = false
 end
@@ -32,7 +35,8 @@ const to_autobox_msg = to_autobox()
 
 ### /from_autobox
 const latest_from_autobox = fill(from_autobox())
-function from_autobox_callback(msg::from_autobox, to_autobox_pub, mpc=X1MPC)
+function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMPC, traj_mpc=X1CMPC)
+    mpc = (tracking_mode[] == :path ? path_mpc : traj_mpc)
     mpc.current_state = BicycleState(msg.E_m, msg.N_m, msg.psi_rad, msg.ux_mps, msg.uy_mps, msg.r_radps)
     # mpc.current_control = BicycleControl(msg.delta_rad, msg.fxf_N, msg.fxr_N)
     mpc.current_control = BicycleControl(to_autobox_msg.delta_cmd_rad, to_autobox_msg.fxf_cmd_N, to_autobox_msg.fxr_cmd_N)

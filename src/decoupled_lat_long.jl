@@ -15,7 +15,7 @@ struct DecoupledControlParams{T}
     R_δ::T
     R_Δδ::T
 end
-function DecoupledControlParams(;V_min=2.0,
+function DecoupledControlParams(;V_min=1.0,
                                  V_max=15.0,
                                  k_V=10/4/100,
                                  k_s=10/4/10000,
@@ -42,12 +42,11 @@ function DecoupledTrajectoryTrackingMPC(vehicle::Dict{Symbol,T}, trajectory::Tra
     ps = rand(LateralTrackingBicycleParams{T}, N)
     tracking_dynamics = VehicleModel(vehicle, LateralTrackingBicycleModel(vehicle))
     model, variables, parameters = construct_lateral_tracking_QP(tracking_dynamics, control_params, time_steps, qs, us, ps)
-    mpc = TrajectoryTrackingMPC(vehicle, trajectory, dynamics, control_params,
-                                current_state, current_control, 0, NaN,
-                                time_steps,
-                                qs, us, ps,
-                                tracking_dynamics, model, variables, parameters, false)
-    mpc
+    TrajectoryTrackingMPC(vehicle, trajectory, dynamics, control_params,
+                          current_state, current_control, 0, NaN,
+                          time_steps,
+                          qs, us, ps,
+                          tracking_dynamics, model, variables, parameters, false)
 end
 
 function compute_linearization_nodes!(mpc::TrajectoryTrackingMPC{T},
@@ -100,7 +99,7 @@ function compute_linearization_nodes!(mpc::TrajectoryTrackingMPC{T},
         ps[i] = p
         i == N_short+N_long+1 && break
         V = V + A*τ
-        s = s + V*τ + A*τ*τ
+        s = s + V*τ + A*τ*τ/2
     end
 end
 
@@ -164,7 +163,7 @@ function construct_lateral_tracking_QP(dynamics::VehicleModel{T}, control_params
     δ  = [Variable(m) for i in 1:1, t in 1:N_short+N_long+1]
     σ  = [Variable(m) for i in 1:2, t in 1:N_short+N_long]
     Δδ = [Variable(m) for t in 1:N_short+N_long]
-    @constraint(m, vec(σ) >= 0)
+    @constraint(m, vec(σ) >= fill(T(0), 2*(N_short+N_long)))
     @constraint(m, diff(δ[1,:]) == Δδ)
 
     @constraint(m, q[:,1] == q_curr)

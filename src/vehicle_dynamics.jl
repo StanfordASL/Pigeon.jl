@@ -142,7 +142,7 @@ struct TrackingBicycleModel{T} <: AbstractBicycleModel{T}
 end
 TrackingBicycleModel(vehicle::Dict) = TrackingBicycleModel(BicycleModelParams(vehicle))
 
-@maintain_type struct TrackingBicycleState{T} <: FieldVector{4,T}
+@maintain_type struct TrackingBicycleState{T} <: FieldVector{6,T}
     Δs::T   # longitudinal error (w.r.t. nominal trajectory)
     Ux::T   # body frame longitudinal speed
     Uy::T   # body frame lateral speed
@@ -174,11 +174,11 @@ function (B::TrackingBicycleModel{T})((Δs, Ux, Uy, r, Δψ, e)::StaticVector{6}
     F̃xf = Fxf*cδ - Fyf*sδ
     F̃yf = Fyf*cδ + Fxf*sδ
     SVector(
-        Ux*cΔψ - Uy*sΔψ,
+        Ux*cΔψ - Uy*sΔψ - V,
         (F̃xf + Fxr + Fx_drag + Fx_grade)/m + r*Uy,
         (F̃yf + Fyr + Fy_grade)/m - r*Ux,
         (a*F̃yf - b*Fyr)/Izz,
-        r - Ux*κ,
+        r - (Ux*cΔψ - Uy*sΔψ)*κ,
         Ux*sΔψ + Uy*cΔψ
     )
 end
@@ -294,6 +294,7 @@ end
 ControlLimits(vehicle::Dict) = ControlLimits((vehicle[n] for n in fieldnames(ControlLimits))...)
 function apply_control_limits(CL::ControlLimits, (δ, Fx)::StaticVector{2}, Ux)
     Fx_max, Fx_min, Px_max, δ_max = CL.Fx_max, CL.Fx_min, CL.Px_max, CL.δ_max
+    Ux = ForwardDiff.value(Ux)    # important for ForwardDiff/linearization, since Ux is technically a state variable
     BicycleControl2(clamp(δ, -δ_max, δ_max),
                     max(min(Fx, Fx_max, Px_max/Ux), Fx_min))
 end

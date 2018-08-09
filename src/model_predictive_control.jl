@@ -6,16 +6,18 @@ struct MPCTimeSteps{T}
     dt_short::T
     dt_long::T
     use_correction_step::Bool
+    prev_ts::Vector{T}
 end
 function MPCTimeSteps(N_short::Int, N_long::Int, dt_short::T, dt_long::T, use_correction_step::Bool) where {T}
     N = 1 + N_short + N_long
     ts = T.(1:N)    # initialized so that dt's are nonzero
     dt = diff(ts)
-    MPCTimeSteps(ts, dt, N_short, N_long, dt_short, dt_long, use_correction_step)
+    MPCTimeSteps(ts, dt, N_short, N_long, dt_short, dt_long, use_correction_step, ts)
 end
 function compute_time_steps!(TS::MPCTimeSteps, t0)
     N_short, N_long, dt_short, dt_long, use_correction_step = TS.N_short, TS.N_long, TS.dt_short, TS.dt_long, TS.use_correction_step
 
+    TS.prev_ts .= TS.ts
     t0_long = t0 + N_short*dt_short
     if use_correction_step
         t0_long = dt_long*ceil((t0_long+dt_short)/dt_long - 1)    # dt_correction ∈ [dt_short, dt_long+dt_short)

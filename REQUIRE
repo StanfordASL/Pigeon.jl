@@ -1,6 +1,7 @@
 StaticArrays 0.8.2
 DifferentialDynamicsModels
 LinearDynamicsModels
+ForwardDiff 0.8.1
 Interpolations 0.7.3
 OSQP 0.1.8
 MathOptInterface 0.4.1
