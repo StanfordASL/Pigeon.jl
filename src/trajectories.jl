@@ -19,7 +19,7 @@ struct TrajectoryTube{T}
     edge_L::Vector{T}    # left lateral deviation bound (m)
     edge_R::Vector{T}    # right lateral deviation bound (m)
 
-    interp_by_s::Interpolations.GriddedInterpolation{SpatialInterpolants{T}, 1, SpatialInterpolants{T}, Gridded{Linear}, Tuple{Vector{T}}, 0}
+    interp_by_s::GriddedInterpolation{SpatialInterpolants{T}, 1, SpatialInterpolants{T}, Gridded{Linear}, Tuple{Vector{T}}, 0}
 
     function TrajectoryTube{T}(t::Vector{T}, s::Vector{T}, V::Vector{T}, A::Vector{T},
                                E::Vector{T}, N::Vector{T}, ψ::Vector{T}, κ::Vector{T},

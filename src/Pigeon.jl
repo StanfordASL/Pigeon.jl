@@ -11,10 +11,14 @@ using Interpolations
 using OSQP.MathOptInterfaceOSQP
 import MathOptInterface
 const MOI = MathOptInterface
-using SimpleQP
+using Parametron
 using RobotOS
+using JLD2
 
-SimpleQP.Parameter(A::AbstractArray, model) = Parameter(identity, A, model)
+import StaticArrays: SUnitRange
+import Interpolations: GriddedInterpolation
+
+Parametron.Parameter(A::AbstractArray, model) = Parameter(identity, A, model)
 
 include("math.jl")
 include("vehicles.jl")
@@ -34,8 +38,8 @@ X1CMPC.current_control = BicycleControl(0., 0., 0.)
 include("ros_integration.jl")
 
 function __init__()
-    SimpleQP.initialize!(X1DMPC.model)    # Refresh pointer to OSQP model
-    SimpleQP.initialize!(X1CMPC.model)    # Refresh pointer to OSQP model
+    Parametron.initialize!(X1DMPC.model)    # Refresh pointer to OSQP model
+    Parametron.initialize!(X1CMPC.model)    # Refresh pointer to OSQP model
 
     # dry-runs to force compilation
     compute_time_steps!(X1DMPC, 0.)

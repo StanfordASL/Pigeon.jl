@@ -1,5 +1,3 @@
-import StaticArrays: SUnitRange
-
 @maintain_type struct BicycleControl{T} <: FieldVector{3,T}    # common to all models below
     δ::T    # steering angle
     Fxf::T  # front tire longitudinal force (tire frame)

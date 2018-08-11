@@ -1,7 +1,7 @@
 @inline mod2piF(x::T) where {T} = mod(x, 2*T(pi))
 @inline function adiff(x, y)
     d = mod2piF(x - y)
-    d <= π ? d : d - 2*oftype(d, π)
+    ifelse(d <= π, d, d - 2*oftype(d, π))
 end
 
 cumtrapz(y, x, x0=0) = cumsum(vcat(0, diff(x).*(y[1:end-1] .+ y[2:end])/2)) .+ x0

@@ -29,7 +29,7 @@ function CoupledControlParams(;V_min=1.0,
                                W_β=50/(10*π/180),
                                W_r=50.0,
                                R_δ=0.0,
-                               R_Δδ=0.01,
+                               R_Δδ=0.1,
                                R_Fx=0.0,
                                R_ΔFx=0.5)
     CoupledControlParams(V_min, V_max, k_V, k_s, δ̇_max, Q_Δs, Q_Δψ, Q_e, W_β, W_r, R_δ, R_Δδ, R_Fx, R_ΔFx)
@@ -79,16 +79,15 @@ function compute_linearization_nodes!(mpc::TrajectoryTrackingMPC{T},
         qs[1] = q
         us[1] = u
         ps[1] = p
-        q_interp = interpolate((prev_ts,), vec(reinterpret(TrackingBicycleState{Float64}, value.(Ref(mpc.model), mpc.variables.q))), Gridded(Linear()))
-        u_interp = interpolate((prev_ts,), vec(reinterpret(BicycleControl2{Float64}, value.(Ref(mpc.model), mpc.variables.u))), Gridded(Linear()))
+        update_interpolations!(mpc.variables, mpc.model, prev_ts)
         for i in 2:N_short+N_long+1
             t = ts[i]
             if t < prev_ts[end]
-                q = q_interp[t]
-                u = u_interp[t] .* mpc.variables.u_normalization
+                q = mpc.variables.q_interp[t]
+                u = mpc.variables.u_interp[t] .* mpc.variables.u_normalization
             else
-                q = q_interp[prev_ts[end]]
-                u = u_interp[prev_ts[end]] .* mpc.variables.u_normalization
+                q = mpc.variables.q_interp[prev_ts[end]]
+                u = mpc.variables.u_interp[prev_ts[end]] .* mpc.variables.u_normalization
             end
             s = traj(t).s + q.Δs
             tj = traj[s]
@@ -169,11 +168,27 @@ struct TrackingQPVariables{T}
     u::Matrix{Variable}
     σ::Matrix{Variable}
     u_normalization::SVector{2,T}
+    q_interp::GriddedInterpolation{TrackingBicycleState{T},1,TrackingBicycleState{T},Gridded{Linear},Tuple{Vector{T}},0}
+    u_interp::GriddedInterpolation{BicycleControl2{T},1,BicycleControl2{T},Gridded{Linear},Tuple{Vector{T}},0}
+end
+function TrackingQPVariables(q::Matrix{Variable}, u::Matrix{Variable}, σ::Matrix{Variable}, u_normalization::SVector{2,T}) where {T}
+    N = size(q, 2)
+    q_interp = interpolate(T, TrackingBicycleState{T}, (T.(1:N),), zeros(TrackingBicycleState{T}, N), Gridded(Linear()))
+    u_interp = interpolate(T, BicycleControl2{T}, (T.(1:N),), zeros(BicycleControl2{T}, N), Gridded(Linear()))
+    TrackingQPVariables(q, u, σ, u_normalization, q_interp, u_interp)
+end
+
+function update_interpolations!(variables::TrackingQPVariables, model::Model{T}, prev_ts) where {T}
+    q_interp, u_interp = variables.q_interp, variables.u_interp
+    q_interp.knots[1] .= prev_ts
+    u_interp.knots[1] .= prev_ts
+    reshape(reinterpret(T, q_interp.coefs), (length(eltype(q_interp)), length(q_interp))) .= value.(Ref(model), variables.q)
+    reshape(reinterpret(T, u_interp.coefs), (length(eltype(u_interp)), length(u_interp))) .= value.(Ref(model), variables.u)
 end
 
 function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params, time_steps, qs, us, ps) where {T}
     N_short, N_long, dt = time_steps.N_short, time_steps.N_long, time_steps.dt
-    u_normalization = SVector(dynamics.control_limits.δ_max, max(-dynamics.control_limits.Fx_min, dynamics.control_limits.Fx_max))
+    u_normalization = SVector{2,T}(dynamics.control_limits.δ_max, max(-dynamics.control_limits.Fx_min, dynamics.control_limits.Fx_max))
 
     optimizer = OSQPOptimizer()
     MOI.set!(optimizer, OSQPSettings.Verbose(), false)
@@ -334,7 +349,6 @@ end
 
 function get_next_control(mpc::TrajectoryTrackingMPC, variables::TrackingQPVariables)
     u_normalization = variables.u_normalization
-    δ, Fx = value.(Ref(mpc.model), variables.u[:,2])
-    BicycleControl(mpc.dynamics.longitudinal_params,
-                   BicycleControl2(δ, Fx) .* u_normalization)
+    δ, Fx = value.(Ref(mpc.model), SVector(variables.u[1,2], variables.u[2,2]))
+    BicycleControl(mpc.dynamics.longitudinal_params, BicycleControl2(δ, Fx) .* u_normalization)
 end

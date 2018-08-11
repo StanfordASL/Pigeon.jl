@@ -72,7 +72,7 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMP
             update_QP!(mpc)
             solve!(mpc)
         catch err
-            RobotOS.logwarn("OSQP Error: $err")
+            RobotOS.logwarn("Pigeon MPC Error: $err\n$(stacktrace(catch_backtrace()))")
         end
     end
 

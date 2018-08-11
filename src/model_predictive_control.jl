@@ -59,7 +59,7 @@ compute_linearization_nodes!(mpc::TrajectoryTrackingMPC) = compute_linearization
 
 update_QP!(mpc::TrajectoryTrackingMPC) = update_QP!(mpc, mpc.parameters)
 
-SimpleQP.solve!(mpc::TrajectoryTrackingMPC) = (solve!(mpc.model); mpc.solved = true)
+Parametron.solve!(mpc::TrajectoryTrackingMPC) = (solve!(mpc.model); mpc.solved = true)
 
 get_next_control(mpc::TrajectoryTrackingMPC) = get_next_control(mpc, mpc.variables)
 
