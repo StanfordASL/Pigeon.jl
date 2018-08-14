@@ -46,7 +46,7 @@ function DecoupledTrajectoryTrackingMPC(vehicle::Dict{Symbol,T}, trajectory::Tra
                           current_state, current_control, 0, NaN,
                           time_steps,
                           qs, us, ps,
-                          tracking_dynamics, model, variables, parameters, false)
+                          tracking_dynamics, model, variables, parameters)
 end
 
 function compute_linearization_nodes!(mpc::TrajectoryTrackingMPC{T},

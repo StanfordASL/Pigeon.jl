@@ -1,9 +1,9 @@
 @rosimport osprey.msg: path
-@rosimport asl_prototyping.msg: VehicleTrajectory
+@rosimport asl_prototyping.msg: VehicleTrajectory, XYThV
 @rosimport auto_bridge.msg: from_autobox, to_autobox
 rostypegen(@__MODULE__)
 import .osprey.msg: path
-import .asl_prototyping.msg: VehicleTrajectory
+import .asl_prototyping.msg: VehicleTrajectory, XYThV
 import .auto_bridge.msg: from_autobox, to_autobox
 
 TrajectoryTube(p::path) = TrajectoryTube{Float64}(
@@ -35,6 +35,7 @@ const to_autobox_msg = to_autobox()
 
 ### /from_autobox
 const latest_from_autobox = fill(from_autobox())
+const use_HJI_policy = fill(false)
 function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMPC, traj_mpc=X1CMPC)
     mpc = (tracking_mode[] == :path ? path_mpc : traj_mpc)
     mpc.current_state = BicycleState(msg.E_m, msg.N_m, msg.psi_rad, msg.ux_mps, msg.uy_mps, msg.r_radps)
@@ -65,8 +66,15 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMP
         mpc.heartbeat = msg.header.seq - 1
     end
 
+    local relative_state, V, ∇V
     t_elapsed = @elapsed begin
         try
+            if tracking_mode[] == :traj
+                relative_state = HJIRelativeState(mpc.current_state, mpc.other_car_state)
+                V, ∇V = mpc.HJI_cache[relative_state]
+                RobotOS.loginfo("Pigeon MPC: HJI value function = $V")
+                # RobotOS.loginfo("Pigeon MPC: HJI relative state = $(relative_state)")
+            end
             compute_time_steps!(mpc, t)
             compute_linearization_nodes!(mpc)
             update_QP!(mpc)
@@ -82,7 +90,15 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMP
     mpc.heartbeat += 1
 
     s, e, _ = path_coordinates(mpc.trajectory, mpc.current_state)
-    u_next  = get_next_control(mpc)
+    if tracking_mode[] == :traj && use_HJI_policy[] && V <= mpc.HJI_ϵ
+        u_next = BicycleControl(mpc.dynamics.longitudinal_params, optimal_control(mpc.dynamics, relative_state, ∇V))
+        RobotOS.loginfo("Pigeon MPC: HJI stepping in to save the day (with a hammer)")
+    else
+        if tracking_mode[] == :traj && V <= mpc.HJI_ϵ
+            RobotOS.loginfo("Pigeon MPC: HJI stepping in to save the day (with a feather)")
+        end
+        u_next = get_next_control(mpc)
+    end
     to_autobox_msg.header.stamp  = RobotOS.now()
     to_autobox_msg.post_flag     = 1    # TODO: check for OSQP failure
     to_autobox_msg.heartbeat     = mpc.heartbeat
@@ -109,6 +125,10 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMP
     end
 end
 
+function other_car_callback(msg::XYThV, mpc=X1CMPC)
+    mpc.other_car_state = SimpleCarState(msg.x, msg.y, msg.th - pi/2, msg.v)
+end
+
 ### ROS node init
 function start_ROS_node()
     init_node("pigeon", anonymous=false)
@@ -116,5 +136,6 @@ function start_ROS_node()
     Subscriber{path}("/des_path", nominal_trajectory_callback, queue_size=1)
     Subscriber{VehicleTrajectory}("/des_traj", nominal_trajectory_callback, queue_size=1)
     Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub,), queue_size=1)
+    Subscriber{XYThV}("/xbox_car/xythv", other_car_callback, queue_size=1)    # TODO: abstract with a republisher
     @spawn spin()
 end
