@@ -22,7 +22,7 @@ function X1()
     X1[:h1] = 0.37                                                     # CG height w.r.t. line connecting front and rear roll centers (m)
     X1[:h]  = X1[:hf]*X1[:b]/X1[:L] + X1[:hr]*X1[:a]/X1[:L] + X1[:h1]  # CG height (m)
     X1[:ab] = X1[:a] + 0.4953                                          # distance from CG to front bumper (m)
-    X1[:bb] = X1[:b] + 0.5715                                          # distance from CG to rear bumper (m)
+    X1[:bb] = X1[:b] + 0.4318                                          # distance from CG to rear bumper (m)
     X1[:w]  = 1.87                                                     # physical width (m)
 
     # Tire Model Parameters
