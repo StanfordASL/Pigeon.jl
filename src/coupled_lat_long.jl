@@ -13,6 +13,7 @@ struct CoupledControlParams{T}
     W_β::T
     W_r::T
     W_HJI::T
+    N_HJI::Int
 
     R_δ::T
     R_Δδ::T
@@ -30,11 +31,12 @@ function CoupledControlParams(;V_min=1.0,
                                W_β=50/(10*π/180),
                                W_r=50.0,
                                W_HJI=500.0,
+                               N_HJI=3,
                                R_δ=0.0,
                                R_Δδ=0.1,
                                R_Fx=0.0,
                                R_ΔFx=0.5)
-    CoupledControlParams(V_min, V_max, k_V, k_s, δ̇_max, Q_Δs, Q_Δψ, Q_e, W_β, W_r, W_HJI, R_δ, R_Δδ, R_Fx, R_ΔFx)
+    CoupledControlParams(V_min, V_max, k_V, k_s, δ̇_max, Q_Δs, Q_Δψ, Q_e, W_β, W_r, W_HJI, N_HJI, R_δ, R_Δδ, R_Fx, R_ΔFx)
 end
 
 function CoupledTrajectoryTrackingMPC(vehicle::Dict{Symbol,T}, trajectory::TrajectoryTube{T}; control_params=CoupledControlParams(),
@@ -338,7 +340,8 @@ function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
     end
     relative_state = HJIRelativeState(mpc.current_state, mpc.other_car_state)
     M, b = compute_reachability_constraint(mpc.dynamics, mpc.HJI_cache, relative_state, mpc.HJI_ϵ, BicycleControl2(mpc.current_control))
-    QPP.W_HJI() .= control_params.W_HJI .* ones(N_short)
+    # QPP.W_HJI() .= control_params.W_HJI .* ones(N_short)
+    QPP.W_HJI() .= control_params.W_HJI .* [ones(control_params.N_HJI); zeros(N_short - control_params.N_HJI)]
     QPP.M_HJI() .= (M .* u_normalization)'
     QPP.b_HJI() .= b
     for t in N_short+1:N_short+N_long

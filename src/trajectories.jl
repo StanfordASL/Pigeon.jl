@@ -51,7 +51,7 @@ function Base.getindex(traj::TrajectoryTube, s)
     i = clamp(searchsortedfirst(traj.s, s, 1, length(traj), Base.Order.ForwardOrdering()) - 1, 1, length(traj)-1)
     A = (traj.V[i+1] - traj.V[i])/(traj.t[i+1] - traj.t[i])    # potentially different from traj.A[i]
     ds = s - traj.s[i]
-    if abs(A) < 1e-3
+    if abs(A) < 1e-3 || s > traj.s[end]
         dt = ds/traj.V[i]
     else
         dt = (sqrt(2*A*ds + traj.V[i]^2) - traj.V[i])/A
