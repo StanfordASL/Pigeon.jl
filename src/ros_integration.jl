@@ -1,7 +1,13 @@
+@rosimport std_msgs.msg: ColorRGBA
+@rosimport geometry_msgs.msg: Point
+@rosimport visualization_msgs.msg: Marker
 @rosimport osprey.msg: path
 @rosimport asl_prototyping.msg: VehicleTrajectory, XYThV
 @rosimport auto_bridge.msg: from_autobox, to_autobox
 rostypegen(@__MODULE__)
+import .std_msgs.msg: ColorRGBA
+import .geometry_msgs.msg: Point
+import .visualization_msgs.msg: Marker
 import .osprey.msg: path
 import .asl_prototyping.msg: VehicleTrajectory, XYThV
 import .auto_bridge.msg: from_autobox, to_autobox
@@ -33,10 +39,58 @@ end
 ### /to_autobox
 const to_autobox_msg = to_autobox()
 
+### /HJI_values
+function initialize_HJI_values_marker!(m)
+    X = X1CMPC.HJI_cache.grid_knots[1]
+    Y = X1CMPC.HJI_cache.grid_knots[2]
+    m.header.frame_id = "x1"
+    m.type = Marker[:TRIANGLE_LIST]
+    m.pose.orientation.w = 1.0
+    m.scale.x = 1.0
+    m.scale.y = 1.0
+    m.scale.z = 1.0
+    m.frame_locked = true
+    for i in 1:length(X)-1, j in 1:length(Y)-1
+        push!(m.points, Point(X[i]  , Y[j]  , -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
+        push!(m.points, Point(X[i+1], Y[j]  , -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
+        push!(m.points, Point(X[i+1], Y[j+1], -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
+        push!(m.points, Point(X[i]  , Y[j]  , -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
+        push!(m.points, Point(X[i]  , Y[j+1], -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
+        push!(m.points, Point(X[i+1], Y[j+1], -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
+    end
+end
+function update_HJI_values_marker!(m, cache, relative_state)
+    X = cache.grid_knots[1]
+    Y = cache.grid_knots[2]
+    ct = 1
+    for i in 1:length(X)-1, j in 1:length(Y)-1
+        for (x,y) in ((X[i]  , Y[j]  ),
+                      (X[i+1], Y[j]  ),
+                      (X[i+1], Y[j+1]),
+                      (X[i]  , Y[j]  ),
+                      (X[i]  , Y[j+1]),
+                      (X[i+1], Y[j+1]))
+            q = HJIRelativeState{Float32}(x, y, relative_state[3], relative_state[4], relative_state[5], relative_state[6], relative_state[7])
+            color = m.colors[ct]
+            color.r, color.g, color.b = value_to_RGB(cache[q].V)
+            ct += 1
+        end
+    end
+end
+function value_to_RGB(V, V_lo=-3.0, V_hi=20.0, C_lo = SVector(1.0, 0.5, 0.0), C_hi = SVector(0.0, 0.5, 1.0))
+    x = clamp(ifelse(V < 0, 0.5*(V_lo - V)/V_lo, 0.5 + 0.5*V/V_hi), 0.0, 1.0)
+    (1-x)*C_lo + x*C_hi
+end
+
+const pub_HJI_values_marker = fill(true)
+const HJI_values_marker_period = fill(3)
+const HJI_values_marker = Marker()
+initialize_HJI_values_marker!(HJI_values_marker)
+
 ### /from_autobox
 const latest_from_autobox = fill(from_autobox())
 const use_HJI_policy = fill(false)
-function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMPC, traj_mpc=X1CMPC)
+function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub, path_mpc=X1DMPC, traj_mpc=X1CMPC)
     mpc = (tracking_mode[] == :path ? path_mpc : traj_mpc)
     mpc.current_state = BicycleState(msg.E_m, msg.N_m, msg.psi_rad, msg.ux_mps, msg.uy_mps, msg.r_radps)
     # mpc.current_control = BicycleControl(msg.delta_rad, msg.fxf_N, msg.fxr_N)
@@ -69,6 +123,11 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMP
     local relative_state, V, ∇V
     t_elapsed = @elapsed begin
         try
+            if pub_HJI_values_marker[] && mpc.heartbeat % HJI_values_marker_period[] == 0
+                relative_state = HJIRelativeState(mpc.current_state, X1CMPC.other_car_state)
+                update_HJI_values_marker!(HJI_values_marker, X1CMPC.HJI_cache, relative_state)
+                publish(HJI_values_pub, HJI_values_marker)
+            end
             if tracking_mode[] == :traj
                 relative_state = HJIRelativeState(mpc.current_state, mpc.other_car_state)
                 V, ∇V = mpc.HJI_cache[relative_state]
@@ -119,6 +178,7 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMP
         to_autobox_msg.delta_cmd_rad = 0    # ensures that if we get 2 NaNs in a row, we return to 0 control
         to_autobox_msg.fxf_cmd_N     = 0
         to_autobox_msg.fxr_cmd_N     = 0
+        Parametron.initialize!(mpc.model)   # reinitialize model (otherwise NaNs might stick)
         mpc.solved = false    # any warm starting should ignore the previous solution
     else
         publish(to_autobox_pub, to_autobox_msg)
@@ -133,9 +193,10 @@ end
 function start_ROS_node()
     init_node("pigeon", anonymous=false)
     to_autobox_pub = Publisher{to_autobox}("/to_autobox", queue_size=10)
+    HJI_values_pub = Publisher{Marker}("/HJI_values", queue_size=10)
     Subscriber{path}("/des_path", nominal_trajectory_callback, queue_size=1)
     Subscriber{VehicleTrajectory}("/des_traj", nominal_trajectory_callback, queue_size=1)
-    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub,), queue_size=1)
+    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub, HJI_values_pub), queue_size=1)
     Subscriber{XYThV}("/xbox_car/xythv", other_car_callback, queue_size=1)    # TODO: abstract with a republisher
     @spawn spin()
 end

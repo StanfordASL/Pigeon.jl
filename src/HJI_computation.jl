@@ -64,7 +64,7 @@ function save(fname::String, cache::HJICache)
 end
 
 function Base.getindex(cache::HJICache, x::HJIRelativeState{T}) where {T}
-    if all(cache.grid_knots[i][1] < x[i] < cache.grid_knots[i][end] for i in 1:length(cache.grid_knots))
+    if all(cache.grid_knots[i][1] <= x[i] <= cache.grid_knots[i][end] for i in 1:length(cache.grid_knots))
         (V=cache.V[x[1], x[2], x[3], x[4], x[5], x[6], x[7]], ∇V=cache.∇V[x[1], x[2], x[3], x[4], x[5], x[6], x[7]])    # avoid splatting penalty
     else
         (V=T(Inf), ∇V=zeros(SVector{7,T}))
