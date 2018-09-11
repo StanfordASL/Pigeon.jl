@@ -1,9 +1,9 @@
 @rosimport osprey.msg: path
-@rosimport asl_prototyping.msg: VehicleTrajectory, XYThV
+@rosimport safe_traffic_weaving.msg: VehicleTrajectory, XYThV
 @rosimport auto_messages.msg: from_autobox, to_autobox
 rostypegen(@__MODULE__)
 import .osprey.msg: path
-import .asl_prototyping.msg: VehicleTrajectory, XYThV
+import .safe_traffic_weaving.msg: VehicleTrajectory, XYThV
 import .auto_messages.msg: from_autobox, to_autobox
 
 TrajectoryTube(p::path) = TrajectoryTube{Float64}(
