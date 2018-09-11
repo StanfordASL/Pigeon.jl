@@ -11,13 +11,13 @@ using RobotOS
 @rosimport geometry_msgs.msg: Point
 @rosimport visualization_msgs.msg: Marker
 @rosimport asl_prototyping.msg: XYThV
-@rosimport auto_bridge.msg: from_autobox
+@rosimport auto_messages.msg: from_autobox
 rostypegen(@__MODULE__)
 import .std_msgs.msg: ColorRGBA
 import .geometry_msgs.msg: Point
 import .visualization_msgs.msg: Marker
 import .asl_prototyping.msg: XYThV
-import .auto_bridge.msg: from_autobox
+import .auto_messages.msg: from_autobox
 import StaticArrays: SUnitRange
 import Interpolations: GriddedInterpolation
 
