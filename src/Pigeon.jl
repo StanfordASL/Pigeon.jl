@@ -17,6 +17,7 @@ using JLD2
 # using MAT
 
 import StaticArrays: SUnitRange
+import DifferentialDynamicsModels: mod2piF, adiff
 import Interpolations: GriddedInterpolation
 
 Parametron.Parameter(A::AbstractArray, model) = Parameter(identity, A, model)
