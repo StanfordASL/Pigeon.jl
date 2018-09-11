@@ -75,7 +75,7 @@ function Base.getindex(cache::HJICache, x::HJIRelativeState{T}) where {T}
     end
 end
 
-const cache = HJICache(joinpath(@__DIR__, "BicycleCAvoid.jld2"))
+const cache = HJICache(joinpath(@__DIR__, "../deps/BicycleCAvoid.jld2"))
 
 ### /HJI_values
 function initialize_HJI_values_marker!(m)

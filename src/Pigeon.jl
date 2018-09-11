@@ -37,7 +37,7 @@ X1DMPC.current_state = BicycleState(0., 0., 0., 5., 0., 0.)
 X1DMPC.current_control = BicycleControl(0., 0., 0.)
 X1CMPC.current_state = BicycleState(0., 0., 0., 5., 0., 0.)
 X1CMPC.current_control = BicycleControl(0., 0., 0.)
-X1CMPC.HJI_cache = HJICache(joinpath(@__DIR__, "BicycleCAvoid.jld2"))
+X1CMPC.HJI_cache = HJICache(joinpath(@__DIR__, "../deps/BicycleCAvoid.jld2"))
 
 include("ros_integration.jl")
 
