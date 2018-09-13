@@ -14,6 +14,9 @@ TrajectoryTube(p::VehicleTrajectory) = TrajectoryTube{Float64}(
     p.t, p.s, p.V, p.A, p.E, p.N, p.heading, p.curvature, p.grade, p.bank, p.edge_L, p.edge_R
 )
 
+### DEBUG
+const show_loginfo = fill(false)
+
 ### /des_path and /des_traj
 const latest_trajectory = fill(straight_trajectory(30., 5.))
 const tracking_mode = fill(:path)
@@ -42,21 +45,21 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMP
     mpc.current_control = BicycleControl(to_autobox_msg.delta_cmd_rad, to_autobox_msg.fxf_cmd_N, to_autobox_msg.fxr_cmd_N)
     mpc.trajectory = latest_trajectory[]
     if msg.pre_flag == 0
-        RobotOS.loginfo("Pigeon MPC: /from_autobox pre_flag == 0, MPC inactive")
+        show_loginfo[] && RobotOS.loginfo("Pigeon MPC: /from_autobox pre_flag == 0, MPC inactive")
         return
     end
     if isnan(mpc.time_offset)
-        RobotOS.loginfo("Pigeon MPC: time_offset not set, running in path tracking mode")
+        show_loginfo[] && RobotOS.loginfo("Pigeon MPC: time_offset not set, running in path tracking mode")
         _, _, t = path_coordinates(mpc.trajectory, mpc.current_state)
     else
         t = convert(Float64, msg.header.stamp) - mpc.time_offset
         if t < 0 || t > mpc.trajectory.t[end]
-            RobotOS.loginfo("Pigeon MPC: current time $t outside trajectory interval [0, $(mpc.trajectory.t[end])]")
+            show_loginfo[] && RobotOS.loginfo("Pigeon MPC: current time $t outside trajectory interval [0, $(mpc.trajectory.t[end])]")
             return
         end
     end
     if mpc.current_state.Ux < 1
-        RobotOS.loginfo("Pigeon MPC: current speed < 1, pausing MPC while X1 is stopped")
+        show_loginfo[] && RobotOS.loginfo("Pigeon MPC: current speed < 1, pausing MPC while X1 is stopped")
         return
     end
     MPC_steps_missed = msg.header.seq - (mpc.heartbeat + 1)
@@ -71,8 +74,8 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMP
             if tracking_mode[] == :traj
                 relative_state = HJIRelativeState(mpc.current_state, mpc.other_car_state)
                 V, ∇V = mpc.HJI_cache[relative_state]
-                RobotOS.loginfo("Pigeon MPC: HJI value function = $V")
-                # RobotOS.loginfo("Pigeon MPC: HJI relative state = $(relative_state)")
+                show_loginfo[] && RobotOS.loginfo("Pigeon MPC: HJI value function = $V")
+                # show_loginfo[] && RobotOS.loginfo("Pigeon MPC: HJI relative state = $(relative_state)")
             end
             compute_time_steps!(mpc, t)
             compute_linearization_nodes!(mpc)
@@ -83,18 +86,24 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMP
         end
     end
 
-    RobotOS.loginfo("Pigeon MPC: OSQP took $(1000*t_elapsed) ms at heartbeat $(mpc.heartbeat)")
-    # RobotOS.loginfo("Pigeon MPC: $(mpc.model.optimizer.results.info)")
-    # RobotOS.loginfo("deltas: $(value.(mpc.model, mpc.variables.δ))")
+    if t_elapsed > 0.01
+        RobotOS.logwarn("Pigeon MPC: OSQP took $(1000*t_elapsed) ms at heartbeat $(mpc.heartbeat)")
+    else
+        show_loginfo[] && RobotOS.loginfo("Pigeon MPC: OSQP took $(1000*t_elapsed) ms at heartbeat $(mpc.heartbeat)")
+    end
+    # show_loginfo[] && RobotOS.loginfo("Pigeon MPC: $(mpc.model.optimizer.results.info)")
+    # show_loginfo[] && RobotOS.loginfo("deltas: $(value.(mpc.model, mpc.variables.δ))")
     mpc.heartbeat += 1
 
     s, e, _ = path_coordinates(mpc.trajectory, mpc.current_state)
     if tracking_mode[] == :traj && use_HJI_policy[] && V <= mpc.HJI_ϵ
         u_next = BicycleControl(mpc.dynamics.longitudinal_params, optimal_control(mpc.dynamics, relative_state, ∇V))
-        RobotOS.loginfo("Pigeon MPC: HJI stepping in to save the day (with a hammer)")
+        RobotOS.logwarn("Pigeon MPC: HJI stepping in to save the day (with a hammer)")
+        RobotOS.logwarn("Pigeon MPC: HJI value function = $V")
     else
         if tracking_mode[] == :traj && V <= mpc.HJI_ϵ
-            RobotOS.loginfo("Pigeon MPC: HJI stepping in to save the day (with a feather)")
+            RobotOS.logwarn("Pigeon MPC: HJI stepping in to save the day (with a feather)")
+            RobotOS.logwarn("Pigeon MPC: HJI value function = $V")
         end
         u_next = get_next_control(mpc)
     end
@@ -107,10 +116,10 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMP
     to_autobox_msg.fxf_cmd_N     = u_next.Fxf
     to_autobox_msg.fxr_cmd_N     = u_next.Fxr
     if isnan(to_autobox_msg.delta_cmd_rad) || isnan(to_autobox_msg.fxf_cmd_N) || isnan(to_autobox_msg.fxr_cmd_N)
-        RobotOS.loginfo("Pigeon MPC: OSQP returned NaNs " *
-                        "($(to_autobox_msg.delta_cmd_rad), $(to_autobox_msg.fxf_cmd_N), $(to_autobox_msg.fxr_cmd_N))" *
-                        "; using previous control "*
-                        "($(mpc.current_control.δ), $(mpc.current_control.Fxf), $(mpc.current_control.Fxr))")
+        show_loginfo[] && RobotOS.loginfo("Pigeon MPC: OSQP returned NaNs " *
+                                          "($(to_autobox_msg.delta_cmd_rad), $(to_autobox_msg.fxf_cmd_N), $(to_autobox_msg.fxr_cmd_N))" *
+                                          "; using previous control "*
+                                          "($(mpc.current_control.δ), $(mpc.current_control.Fxf), $(mpc.current_control.Fxr))")
         to_autobox_msg.delta_cmd_rad = mpc.current_control.δ
         to_autobox_msg.fxf_cmd_N     = mpc.current_control.Fxf
         to_autobox_msg.fxr_cmd_N     = mpc.current_control.Fxr

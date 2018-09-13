@@ -32,7 +32,7 @@ include("decoupled_lat_long.jl")
 include("coupled_lat_long.jl")
 
 const X1DMPC = DecoupledTrajectoryTrackingMPC(X1(), straight_trajectory(30., 5.))
-const X1CMPC = CoupledTrajectoryTrackingMPC(X1(), straight_trajectory(30., 5.))
+const X1CMPC = CoupledTrajectoryTrackingMPC(X1(), straight_trajectory(30., 5.), N_short=5, N_long=10)
 X1DMPC.current_state = BicycleState(0., 0., 0., 5., 0., 0.)
 X1DMPC.current_control = BicycleControl(0., 0., 0.)
 X1CMPC.current_state = BicycleState(0., 0., 0., 5., 0., 0.)
