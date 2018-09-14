@@ -141,10 +141,11 @@ end
 ### ROS node init
 function start_ROS_node()
     init_node("pigeon", anonymous=false)
+    other_car = RobotOS.get_param("human", "/xbox_car")
     to_autobox_pub = Publisher{to_autobox}("/to_autobox", queue_size=10)
     Subscriber{path}("/des_path", nominal_trajectory_callback, queue_size=1)
     Subscriber{VehicleTrajectory}("/des_traj", nominal_trajectory_callback, queue_size=1)
     Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub,), queue_size=1)
-    Subscriber{XYThV}("/xbox_car/xythv", other_car_callback, queue_size=1)    # TODO: abstract with a republisher
+    Subscriber{XYThV}("$(other_car)/xythv", other_car_callback, queue_size=1)    # TODO: abstract with a republisher
     @spawn spin()
 end

@@ -171,10 +171,11 @@ end
 ### ROS node init
 function start_ROS_node()
     init_node("pigeon_viz", anonymous=false)
+    other_car = RobotOS.get_param("human", "/xbox_car")
     HJI_values_pub = Publisher{Marker}("/HJI_values", queue_size=1)
     HJI_contour_pub = Publisher{Marker}("/HJI_contour", queue_size=1)
     Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (HJI_values_pub, HJI_contour_pub), queue_size=1)
-    Subscriber{XYThV}("/xbox_car/xythv", other_car_callback, queue_size=1)
+    Subscriber{XYThV}("$(other_car)/xythv", other_car_callback, queue_size=1)
     @spawn spin()
 end
 
