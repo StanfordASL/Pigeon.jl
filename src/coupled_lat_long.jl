@@ -87,11 +87,11 @@ function compute_linearization_nodes!(mpc::TrajectoryTrackingMPC{T},
         for i in 2:N_short+N_long+1
             t = ts[i]
             if t < prev_ts[end]
-                q = mpc.variables.q_interp[t]
-                u = mpc.variables.u_interp[t] .* mpc.variables.u_normalization
+                q = mpc.variables.q_interp(t)
+                u = mpc.variables.u_interp(t) .* mpc.variables.u_normalization
             else
-                q = mpc.variables.q_interp[prev_ts[end]]
-                u = mpc.variables.u_interp[prev_ts[end]] .* mpc.variables.u_normalization
+                q = mpc.variables.q_interp(prev_ts[end])
+                u = mpc.variables.u_interp(prev_ts[end]) .* mpc.variables.u_normalization
             end
             s = traj(t).s + q.Δs
             tj = traj[s]
@@ -176,8 +176,8 @@ struct TrackingQPVariables{T}
     σ::Matrix{Variable}
     σ_HJI::Vector{Variable}
     u_normalization::SVector{2,T}
-    q_interp::GriddedInterpolation{TrackingBicycleState{T},1,TrackingBicycleState{T},Gridded{Linear},Tuple{Vector{T}},0}
-    u_interp::GriddedInterpolation{BicycleControl2{T},1,BicycleControl2{T},Gridded{Linear},Tuple{Vector{T}},0}
+    q_interp::GriddedInterpolation{TrackingBicycleState{T},1,TrackingBicycleState{T},Gridded{Linear},Tuple{Vector{T}}}
+    u_interp::GriddedInterpolation{BicycleControl2{T},1,BicycleControl2{T},Gridded{Linear},Tuple{Vector{T}}}
 end
 function TrackingQPVariables(q::Matrix{Variable}, u::Matrix{Variable}, σ::Matrix{Variable}, σ_HJI::Vector{Variable}, u_normalization::SVector{2,T}) where {T}
     N = size(q, 2)

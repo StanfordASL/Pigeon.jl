@@ -58,8 +58,8 @@ function HJIRelativeState(us::BicycleState, them::SimpleCarState)
 end
 struct HJICache
     grid_knots::NTuple{7,Vector{Float32}}
-    V ::GriddedInterpolation{Float32,7,Float32,Gridded{Linear},NTuple{7,Vector{Float32}},0}
-    ∇V::GriddedInterpolation{SVector{7,Float32},7,SVector{7,Float32},Gridded{Linear},NTuple{7,Vector{Float32}},0}
+    V ::GriddedInterpolation{Float32,7,Float32,Gridded{Linear},NTuple{7,Vector{Float32}}}
+    ∇V::GriddedInterpolation{SVector{7,Float32},7,SVector{7,Float32},Gridded{Linear},NTuple{7,Vector{Float32}}}
 end
 function HJICache(fname::String)
     @load fname grid_knots V_raw ∇V_raw
@@ -69,7 +69,7 @@ function HJICache(fname::String)
 end
 function Base.getindex(cache::HJICache, x::HJIRelativeState{T}) where {T}
     if all(cache.grid_knots[i][1] <= x[i] <= cache.grid_knots[i][end] for i in 1:length(cache.grid_knots))
-        (V=cache.V[x[1], x[2], x[3], x[4], x[5], x[6], x[7]], ∇V=cache.∇V[x[1], x[2], x[3], x[4], x[5], x[6], x[7]])    # avoid splatting penalty
+        (V=cache.V(x[1], x[2], x[3], x[4], x[5], x[6], x[7]), ∇V=cache.∇V(x[1], x[2], x[3], x[4], x[5], x[6], x[7]))    # avoid splatting penalty
     else
         (V=T(Inf), ∇V=zeros(SVector{7,T}))
     end

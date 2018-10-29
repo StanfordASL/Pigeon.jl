@@ -19,7 +19,9 @@ struct TrajectoryTube{T}
     edge_L::Vector{T}    # left lateral deviation bound (m)
     edge_R::Vector{T}    # right lateral deviation bound (m)
 
-    interp_by_s::GriddedInterpolation{SpatialInterpolants{T}, 1, SpatialInterpolants{T}, Gridded{Linear}, Tuple{Vector{T}}, 0}
+    interp_by_s::Extrapolation{SpatialInterpolants{T},1,
+                               GriddedInterpolation{SpatialInterpolants{T},1,SpatialInterpolants{T},Gridded{Linear},Tuple{Vector{T}}},
+                               Gridded{Linear},Line{Nothing}}
 
     function TrajectoryTube{T}(t::Vector{T}, s::Vector{T}, V::Vector{T}, A::Vector{T},
                                E::Vector{T}, N::Vector{T}, ψ::Vector{T}, κ::Vector{T},
@@ -27,7 +29,10 @@ struct TrajectoryTube{T}
         @assert length(t) == length(s) == length(V) == length(A) ==
                 length(E) == length(N) == length(ψ) == length(κ) ==
                 length(θ) == length(ϕ) == length(edge_L) == length(edge_R)
-        interp_by_s = interpolate((s,), vec(reinterpret(SpatialInterpolants{T}, [E N ψ κ θ ϕ edge_L edge_R]')), Gridded(Linear()))
+        interp_by_s = extrapolate(
+            interpolate((s,), vec(reinterpret(SpatialInterpolants{T}, [E N ψ κ θ ϕ edge_L edge_R]')), Gridded(Linear())),
+            Line()
+        )
         new(t, s, V, A, E, N, ψ, κ, θ, ϕ, edge_L, edge_R, interp_by_s)
     end
 end
@@ -44,7 +49,7 @@ function (traj::TrajectoryTube)(t)
     A = (traj.V[i+1] - traj.V[i])/(traj.t[i+1] - traj.t[i])    # potentially different from traj.A[i]
     dt = t - traj.t[i]
     ti = TimeInterpolants(traj.s[i] + traj.V[i]*dt + A*dt*dt/2, traj.V[i] + A*dt, A)
-    si = traj.interp_by_s[ti.s]
+    si = traj.interp_by_s(ti.s)
     TrajectoryNode(t, ti, si)
 end
 function Base.getindex(traj::TrajectoryTube, s)
@@ -58,7 +63,7 @@ function Base.getindex(traj::TrajectoryTube, s)
     end
     t = traj.t[i] + dt
     ti = TimeInterpolants(s, traj.V[i] + A*dt, A)
-    si = traj.interp_by_s[s]
+    si = traj.interp_by_s(s)
     TrajectoryNode(t, ti, si)
 end
 
