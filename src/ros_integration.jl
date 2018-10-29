@@ -1,6 +1,12 @@
+@rosimport std_msgs.msg: ColorRGBA
+@rosimport geometry_msgs.msg: Point
+@rosimport visualization_msgs.msg: Marker
 @rosimport safe_traffic_weaving.msg: VehicleTrajectory, path, XYThV
 @rosimport auto_messages.msg: from_autobox, to_autobox
 rostypegen(@__MODULE__)
+import .std_msgs.msg: ColorRGBA
+import .geometry_msgs.msg: Point
+import .visualization_msgs.msg: Marker
 import .safe_traffic_weaving.msg: VehicleTrajectory, path, XYThV
 import .auto_messages.msg: from_autobox, to_autobox
 
@@ -14,6 +20,9 @@ TrajectoryTube(p::VehicleTrajectory) = TrajectoryTube{Float64}(
 
 ### DEBUG
 const show_loginfo = fill(false)
+
+### HJI visualization
+include("rviz.jl")
 
 ### /des_path and /des_traj
 const latest_trajectory = fill(straight_trajectory(30., 5.))
@@ -36,7 +45,7 @@ const to_autobox_msg = to_autobox()
 
 ### /from_autobox
 const use_HJI_policy = fill(false)
-function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMPC, traj_mpc=X1CMPC)
+function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub, HJI_contour_pub, path_mpc=X1DMPC, traj_mpc=X1CMPC)
     mpc = (tracking_mode[] == :path ? path_mpc : traj_mpc)
     mpc.current_state = BicycleState(msg.E_m, msg.N_m, msg.psi_rad, msg.ux_mps, msg.uy_mps, msg.r_radps)
     # mpc.current_control = BicycleControl(msg.delta_rad, msg.fxf_N, msg.fxr_N)
@@ -66,15 +75,23 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, path_mpc=X1DMP
         mpc.heartbeat = msg.header.seq - 1
     end
 
-    local relative_state, V, ∇V
+    ###### TODO: very messy
+    relative_state = HJIRelativeState(mpc.current_state, traj_mpc.other_car_state)
+    V, ∇V = mpc.HJI_cache[relative_state]
+    show_loginfo[] && RobotOS.loginfo("Pigeon MPC: HJI value function = $V")
+    # show_loginfo[] && RobotOS.loginfo("Pigeon MPC: HJI relative state = $(relative_state)")
+    try
+        update_HJI_values_marker!(HJI_values_marker, relative_state)
+        update_HJI_contour_marker!(HJI_contour_marker, relative_state)
+        publish(HJI_values_pub, HJI_values_marker)
+        publish(HJI_contour_pub, HJI_contour_marker)
+    catch err
+        RobotOS.logwarn("HJI Visualization Error: $err\n$(stacktrace(catch_backtrace()))")
+    end
+    ######
+
     t_elapsed = @elapsed begin
         try
-            if tracking_mode[] == :traj
-                relative_state = HJIRelativeState(mpc.current_state, mpc.other_car_state)
-                V, ∇V = mpc.HJI_cache[relative_state]
-                show_loginfo[] && RobotOS.loginfo("Pigeon MPC: HJI value function = $V")
-                # show_loginfo[] && RobotOS.loginfo("Pigeon MPC: HJI relative state = $(relative_state)")
-            end
             compute_time_steps!(mpc, t)
             compute_linearization_nodes!(mpc)
             update_QP!(mpc)
@@ -141,9 +158,11 @@ function start_ROS_node()
     init_node("pigeon", anonymous=false)
     other_car = RobotOS.get_param("human", "/xbox_car")
     to_autobox_pub = Publisher{to_autobox}("/to_autobox", queue_size=10)
+    HJI_values_pub = Publisher{Marker}("/HJI_values", queue_size=1)
+    HJI_contour_pub = Publisher{Marker}("/HJI_contour", queue_size=1)
     Subscriber{path}("/des_path", nominal_trajectory_callback, queue_size=1)
     Subscriber{VehicleTrajectory}("/des_traj", nominal_trajectory_callback, queue_size=1)
-    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub,), queue_size=1)
+    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub, HJI_values_pub, HJI_contour_pub), queue_size=1)
     Subscriber{XYThV}("$(other_car)/xythv", other_car_callback, queue_size=1)    # TODO: abstract with a republisher
     @spawn spin()
 end
