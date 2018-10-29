@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [deps]
 DifferentialDynamicsModels = "cb52cc87-d0c7-5933-bad1-08679d8b4c67"
+Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
 JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
