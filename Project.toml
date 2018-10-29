@@ -1,0 +1,24 @@
+name = "Pigeon"
+uuid = "e380a9e0-2d3c-5736-9206-bb8e7d178bd8"
+authors = ["Ed Schmerling <ednerd@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+DifferentialDynamicsModels = "cb52cc87-d0c7-5933-bad1-08679d8b4c67"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LinearDynamicsModels = "93c30095-2a61-55f3-920e-6649674b8a9e"
+MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
+OSQP = "ab2f91bb-94b4-55e3-9ba0-7f65df51de79"
+Parametron = "41fac6d6-0ffa-5bcc-b863-17dd4947be41"
+PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"
+RobotOS = "22415677-39a4-5241-a37a-00beabbbdae8"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

@@ -4,10 +4,9 @@ DifferentialDynamicsModels
 LinearDynamicsModels
 ForwardDiff 0.8.1
 Interpolations 0.7.3
-OSQP 0.1.8
-MathOptInterface 0.4.1
-Parametron
+OSQP 0.4.0
+MathOptInterface 0.5.1
+Parametron 0.3.0
 PyCall 1.17.1
 RobotOS 0.6.2
 JLD2 0.1.0
-MAT
