@@ -1,3 +1,5 @@
+using Contour
+
 ### /HJI_values
 function initialize_HJI_values_marker!(m, cache=X1CMPC.HJI_cache)
     m.header.frame_id = "x1"
@@ -59,7 +61,7 @@ function update_HJI_contour_marker!(m, q, cache=X1CMPC.HJI_cache)
     X = cache.grid_knots[1]
     Y = cache.grid_knots[2]
     c = contour(X, Y, [cache[HJIRelativeState{Float32}(x, y, q[3], q[4], q[5], q[6], q[7])].V for x in X, y in Y], Float32(0))
-    if isempty(c.lines[1].vertices)
+    if isempty(c.lines) || isempty(c.lines[1].vertices)
         resize!(m.points, 0)
     else
         m.points = [Point(x, y, -0.05) for (x,y) in c.lines[1].vertices]

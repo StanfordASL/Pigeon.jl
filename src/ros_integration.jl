@@ -51,6 +51,22 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
     # mpc.current_control = BicycleControl(msg.delta_rad, msg.fxf_N, msg.fxr_N)
     mpc.current_control = BicycleControl(to_autobox_msg.delta_cmd_rad, to_autobox_msg.fxf_cmd_N, to_autobox_msg.fxr_cmd_N)
     mpc.trajectory = latest_trajectory[]
+
+    ###### TODO: very messy
+    relative_state = HJIRelativeState(mpc.current_state, traj_mpc.other_car_state)
+    V, ∇V = mpc.HJI_cache[relative_state]
+    show_loginfo[] && RobotOS.loginfo("Pigeon MPC: HJI value function = $V")
+    # show_loginfo[] && RobotOS.loginfo("Pigeon MPC: HJI relative state = $(relative_state)")
+    try
+        update_HJI_values_marker!(HJI_values_marker, relative_state)
+        update_HJI_contour_marker!(HJI_contour_marker, relative_state)
+        publish(HJI_values_pub, HJI_values_marker)
+        publish(HJI_contour_pub, HJI_contour_marker)
+    catch err
+        RobotOS.logwarn("HJI Visualization Error: $err\n$(stacktrace(catch_backtrace()))")
+    end
+    ######
+
     if msg.pre_flag == 0
         show_loginfo[] && RobotOS.loginfo("Pigeon MPC: /from_autobox pre_flag == 0, MPC inactive")
         return
@@ -74,21 +90,6 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
         RobotOS.logwarn("Pigeon MPC: $(MPC_steps_missed) from_autobox messages lost")
         mpc.heartbeat = msg.header.seq - 1
     end
-
-    ###### TODO: very messy
-    relative_state = HJIRelativeState(mpc.current_state, traj_mpc.other_car_state)
-    V, ∇V = mpc.HJI_cache[relative_state]
-    show_loginfo[] && RobotOS.loginfo("Pigeon MPC: HJI value function = $V")
-    # show_loginfo[] && RobotOS.loginfo("Pigeon MPC: HJI relative state = $(relative_state)")
-    try
-        update_HJI_values_marker!(HJI_values_marker, relative_state)
-        update_HJI_contour_marker!(HJI_contour_marker, relative_state)
-        publish(HJI_values_pub, HJI_values_marker)
-        publish(HJI_contour_pub, HJI_contour_marker)
-    catch err
-        RobotOS.logwarn("HJI Visualization Error: $err\n$(stacktrace(catch_backtrace()))")
-    end
-    ######
 
     t_elapsed = @elapsed begin
         try
