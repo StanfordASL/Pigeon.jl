@@ -23,6 +23,15 @@ function HJIRelativeState(us::BicycleState, them::SimpleCarState)
     HJIRelativeState(ΔE, ΔN, adiff(them.ψ, us.ψ), us.Ux, us.Uy, them.V, us.r)
 end
 
+function WALLRelativeState(us::BicycleState, wall::Array{4,Float32})
+    a, b, c, ϕ = wall;
+    xb = us.E;
+    yb = us.N;
+    ψ = us.ψ + pi/2;
+    y_rel = abs(a*xb + b * yb + c) / sqrt(a^2 + b^2);
+    HJIRelativeState(us.E, y_rel, adiff(ψ, ϕ), us.Ux, us.Uy, them.V, us.r)
+end
+
 struct HJICache
     grid_knots::NTuple{7,Vector{Float32}}
     V ::GriddedInterpolation{Float32,7,Float32,Gridded{Linear},NTuple{7,Vector{Float32}}}
