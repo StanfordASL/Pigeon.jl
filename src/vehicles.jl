@@ -27,8 +27,8 @@ function X1()
 
     # Tire Model Parameters
     X1[:μ] = 0.92                                                      # coefficient of friction
-    X1[:Cαf] = 140e3                                                   # front tire (pair) cornering stiffness (N/rad)
-    X1[:Cαr] = 190e3                                                   # rear tire (pair) cornering stiffness (N/rad)
+    X1[:Cαf] = 150e3 # 140e3                                           # front tire (pair) cornering stiffness (N/rad)
+    X1[:Cαr] = 220e3 # 190e3                                           # rear tire (pair) cornering stiffness (N/rad)
 
     # Longitudinal Actuation Limits
     X1[:Fx_max] = 5600                                                 # max positive longitudinal force (N)

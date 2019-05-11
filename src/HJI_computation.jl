@@ -18,7 +18,7 @@ end
 end
 
 function HJIRelativeState(us::BicycleState, them::SimpleCarState)
-    cψ, sψ = sincos(us.ψ)
+    cψ, sψ = sincos(-us.ψ)
     ΔE, ΔN = @SMatrix([cψ sψ; -sψ cψ])*SVector(them.E - us.E, them.N - us.N)
     HJIRelativeState(ΔE, ΔN, adiff(them.ψ, us.ψ), us.Ux, us.Uy, them.V, us.r)
 end
