@@ -17,25 +17,39 @@ end
     r::T
 end
 
+@maintain_type struct HJIWallRelativeState{T} <: FieldVector{5,T}
+    ΔN::T
+    Δψ::T
+    Ux::T
+    Uy::T
+    r::T
+end
+
 function HJIRelativeState(us::BicycleState, them::SimpleCarState)
     cψ, sψ = sincos(-us.ψ)
     ΔE, ΔN = @SMatrix([cψ sψ; -sψ cψ])*SVector(them.E - us.E, them.N - us.N)
     HJIRelativeState(ΔE, ΔN, adiff(them.ψ, us.ψ), us.Ux, us.Uy, them.V, us.r)
 end
 
-function WALLRelativeState(us::BicycleState, wall::Array{4,Float32})
+function HJIWallRelativeState(us::BicycleState, wall::Vector{Float32})
     a, b, c, ϕ = wall;
     xb = us.E;
     yb = us.N;
     ψ = us.ψ + pi/2;
-    y_rel = abs(a*xb + b * yb + c) / sqrt(a^2 + b^2);
-    HJIRelativeState(us.E, y_rel, adiff(ψ, ϕ), us.Ux, us.Uy, them.V, us.r)
+    y_rel = a*xb + b * yb + c;
+    HJIWallRelativeState(y_rel, adiff(ψ, ϕ), us.Ux, us.Uy, us.r)
 end
 
 struct HJICache
     grid_knots::NTuple{7,Vector{Float32}}
     V ::GriddedInterpolation{Float32,7,Float32,Gridded{Linear},NTuple{7,Vector{Float32}}}
     ∇V::GriddedInterpolation{SVector{7,Float32},7,SVector{7,Float32},Gridded{Linear},NTuple{7,Vector{Float32}}}
+end
+
+struct HJIWallCache
+    grid_knots::NTuple{5,Vector{Float32}}
+    V ::GriddedInterpolation{Float32,5,Float32,Gridded{Linear},NTuple{5,Vector{Float32}}}
+    ∇V::GriddedInterpolation{SVector{5,Float32},5,SVector{5,Float32},Gridded{Linear},NTuple{5,Vector{Float32}}}
 end
 
 function placeholder_HJICache()
@@ -45,23 +59,49 @@ function placeholder_HJICache()
     HJICache(grid_knots, V, ∇V)
 end
 
+function placeholder_HJIWallCache()
+    grid_knots = tuple((Float32[-1000., 1000.] for i in 1:5)...)
+    V  = interpolate(Float32, Float32, grid_knots, zeros(Float32,2,2,2,2,2), Gridded(Linear()))
+    ∇V = interpolate(Float32, SVector{5,Float32}, grid_knots, zeros(SVector{5,Float32},2,2,2,2,2), Gridded(Linear()))
+    HJIWallCache(grid_knots, V, ∇V)
+end
+
 function HJICache(fname::String)
-    # if endswith(fname, ".mat")
-    #     HJIdata = matread(fname)
-    #     grid_knots = tuple((x -> convert(Vector{Float32}, vec(x))).(HJIdata["avoid_set"]["g"]["vs"])...)
-    #     V  = interpolate(Float32, Float32, grid_knots,
-    #                      HJIdata["avoid_set"]["data"][1,1], Gridded(Linear()))
-    #     ∇V = interpolate(Float32, SVector{7,Float32}, grid_knots,
-    #                      SVector.(HJIdata["avoid_set"]["deriv"]...), Gridded(Linear()))
-    #     HJICache(grid_knots, V, ∇V)
-    # else
-    if endswith(fname, ".jld2")
+    if endswith(fname, ".mat")
+        HJIdata = matread(fname)
+        grid_knots = tuple((x -> convert(Vector{Float32}, vec(x))).(HJIdata["avoid_set"]["g"]["vs"])...)
+        V  = interpolate(Float32, Float32, grid_knots,
+                         HJIdata["avoid_set"]["data"][1,1], Gridded(Linear()))
+        ∇V = interpolate(Float32, SVector{7,Float32}, grid_knots,
+                         SVector.(HJIdata["avoid_set"]["deriv"]...), Gridded(Linear()))
+        HJICache(grid_knots, V, ∇V)
+    elseif endswith(fname, ".jld2")
         @load fname grid_knots V_raw ∇V_raw
         V  = interpolate(Float32, Float32, grid_knots, V_raw, Gridded(Linear()))
         ∇V = interpolate(Float32, SVector{7,Float32}, grid_knots, Array(reinterpret(SVector{7,Float32}, ∇V_raw)), Gridded(Linear()))
         HJICache(grid_knots, V, ∇V)
     else
         error("Unknown file type for loading HJICache")
+    end
+end
+
+
+function HJIWallCache(fname::String)
+    if endswith(fname, ".mat")
+        HJIdata = matread(fname)
+        grid_knots = tuple((x -> convert(Vector{Float32}, vec(x))).(HJIdata["avoid_set"]["g"]["vs"])...)
+        V  = interpolate(Float32, Float32, grid_knots,
+                         HJIdata["avoid_set"]["data"][1,1], Gridded(Linear()))
+        ∇V = interpolate(Float32, SVector{5,Float32}, grid_knots,
+                         SVector.(HJIdata["avoid_set"]["deriv"]...), Gridded(Linear()))
+        HJIWallCache(grid_knots, V, ∇V)
+    elseif endswith(fname, ".jld2")
+        @load fname grid_knots V_raw ∇V_raw
+        V  = interpolate(Float32, Float32, grid_knots, V_raw, Gridded(Linear()))
+        ∇V = interpolate(Float32, SVector{5,Float32}, grid_knots, Array(reinterpret(SVector{5,Float32}, ∇V_raw)), Gridded(Linear()))
+        HJIWallCache(grid_knots, V, ∇V)
+    else
+        error("Unknown file type for loading HJIWallCache")
     end
 end
 
@@ -80,6 +120,14 @@ function Base.getindex(cache::HJICache, x::HJIRelativeState{T}) where {T}
     end
 end
 
+function Base.getindex(cache::HJIWallCache, x::HJIWallRelativeState{T}) where {T}
+    if all(cache.grid_knots[i][1] <= x[i] <= cache.grid_knots[i][end] for i in 1:length(cache.grid_knots))
+        (V=cache.V(x[1], x[2], x[3], x[4], x[5]), ∇V=cache.∇V(x[1], x[2], x[3], x[4], x[5]))    # avoid splatting penalty
+    else
+        (V=T(Inf), ∇V=zeros(SVector{7,T}))
+    end
+end
+
 function relative_dynamics(X::VehicleModel, (ΔE, ΔN, Δψ, Ux, Uy, V, r)::StaticVector{7},    # relative state
                                             uR::StaticVector{2},                            # robot control
                                             (ω, a)::StaticVector{2})                        # human control
@@ -92,6 +140,20 @@ function relative_dynamics(X::VehicleModel, (ΔE, ΔN, Δψ, Ux, Uy, V, r)::Stat
         bicycle_dynamics[4],
         bicycle_dynamics[5],
         a,
+        bicycle_dynamics[6]
+    )
+end
+
+
+function relative_dynamics(X::VehicleModel, (ΔN, Δψ, Ux, Uy, r)::StaticVector{5},    # relative wall state
+                                            uR::StaticVector{2})                          # robot control
+    bicycle_dynamics = X(BicycleState(0.0, ΔN, Δψ, Ux, Uy, r), uR)                        # x coordinate does not matter for car-wall system
+    sΔψ, cΔψ = sincos(Δψ)
+    SVector(
+        bicycle_dynamics[2],
+        bicycle_dynamics[3],
+        bicycle_dynamics[4],
+        bicycle_dynamics[5],
         bicycle_dynamics[6]
     )
 end
@@ -139,33 +201,87 @@ function optimal_disturbance(X::VehicleModel, relative_state::HJIRelativeState, 
     end
 end
 
-function optimal_control(X::VehicleModel, relative_state::HJIRelativeState, ∇V::StaticVector{7}, uMode=:max; N=50)
+# for car-car relative dynamics
+function optimal_control(X::VehicleModel, relative_state::HJIRelativeState, ∇V::StaticVector{7}, uMode=:max; N=40, M=18)
     BM, LP, CL = X.bicycle_model, X.longitudinal_params, X.control_limits
     L, a, b, h, m, μ, Cαf, Cαr, G, Izz = BM.L, BM.a, BM.b, BM.h, BM.m, BM.μ, BM.Cαf, BM.Cαr, BM.G, BM.Izz
     δ_max, Fx_max, Fx_min = CL.δ_max, CL.Fx_max, CL.Fx_min
     fake_qR = SVector(0., 0., 0., relative_state.Ux, relative_state.Uy, relative_state.r)    # sufficient for lateral_tire_forces
 
     sgn = (uMode == :max ? 1 : -1)
-    A = ∇V[4]/m
-    B = ∇V[5]/m + a*∇V[7]/Izz
-    C = ∇V[5]/m - b*∇V[7]/Izz
-    δ_opt  = ifelse(B >= 0, sgn*δ_max, -sgn*δ_max)
     V_opt  = -sgn*Inf
     Fx_opt = 0.0
-    for n in 0:(N-1)
-        frac = n/(N-1)
-        Fx = frac*Fx_max + (1 - frac)*Fx_min
-        uR = BicycleControl(δ_opt, longitudinal_tire_forces(LP, Fx)...)
-        Fyf, Fyr = lateral_tire_forces(BM, fake_qR, uR)
-        V = A*Fx + B*Fyf + C*Fyr
-        if (sgn > 0 && V > V_opt) || (sgn < 0 && V < V_opt)
-            Fx_opt = Fx
-            V_opt  = V
+    δ_opt  = 0.0
+    for m in 0:(M-1)
+        frac_δ = m/(M-1)
+        δ = frac_δ * δ_max - (1 - frac_δ) * δ_max
+        for n in 0:(N-1)
+            frac = n/(N-1)
+            Fx = frac*Fx_max + (1 - frac)*Fx_min
+            uR = BicycleControl(δ, longitudinal_tire_forces(LP, Fx)...)
+            Fyf, Fyr = lateral_tire_forces(BM, fake_qR, uR)
+            # Fxf coefficient
+            Fxf_coeff = ∇V[4] * cos(δ) / m + ∇V[5] * sin(δ) / m + ∇V[7] * a * sin(δ) / Izz
+            # Fxr coefficient
+            Fxr_coeff = ∇V[4] / m
+            # Fyf coefficient
+            Fyf_coeff = -∇V[4] * sin(δ) / m + ∇V[5] * cos(δ) / m + ∇V[7] * a * cos(δ) / Izz
+            # Fyr coefficient
+            Fyr_coeff = ∇V[5] / m - ∇V[7] * b / Izz 
+
+            V = Fxf_coeff * uR.Fxf + Fyf_coeff * uR.Fxr + Fyf_coeff * Fyf + Fyr_coeff * Fyr
+
+            if (sgn > 0 && V > V_opt) || (sgn < 0 && V < V_opt)
+                Fx_opt = Fx
+                δ_opt = δ
+                V_opt  = V
+            end
         end
     end
     BicycleControl2(δ_opt, Fx_opt)
 end
 
+# for car-wall relative dynamics
+function optimal_control(X::VehicleModel, relative_state::HJIWallRelativeState, ∇V::StaticVector{5}, uMode=:max; N=40, M=18)
+    BM, LP, CL = X.bicycle_model, X.longitudinal_params, X.control_limits
+    L, a, b, h, m, μ, Cαf, Cαr, G, Izz = BM.L, BM.a, BM.b, BM.h, BM.m, BM.μ, BM.Cαf, BM.Cαr, BM.G, BM.Izz
+    δ_max, Fx_max, Fx_min = CL.δ_max, CL.Fx_max, CL.Fx_min
+    fake_qR = SVector(0., 0., 0., relative_state.Ux, relative_state.Uy, relative_state.r)    # sufficient for lateral_tire_forces
+
+    sgn = (uMode == :max ? 1 : -1)
+    V_opt  = -sgn*Inf
+    Fx_opt = 0.0
+    δ_opt  = 0.0
+    for m in 0:(M-1)
+        frac_δ = m/(M-1)
+        δ = frac_δ * δ_max - (1 - frac_δ) * δ_max
+        for n in 0:(N-1)
+            frac = n/(N-1)
+            Fx = frac*Fx_max + (1 - frac)*Fx_min
+            uR = BicycleControl(δ, longitudinal_tire_forces(LP, Fx)...)
+            Fyf, Fyr = lateral_tire_forces(BM, fake_qR, uR)
+            # Fxf coefficient
+            Fxf_coeff = ∇V[3] * cos(δ) / m + ∇V[4] * sin(δ) / m + ∇V[5] * a * sin(δ) / Izz
+            # Fxr coefficient
+            Fxr_coeff = ∇V[3] / m
+            # Fyf coefficient
+            Fyf_coeff = -∇V[3] * sin(δ) / m + ∇V[4] * cos(δ) / m + ∇V[5] * a * cos(δ) / Izz
+            # Fyr coefficient
+            Fyr_coeff = ∇V[4] / m - ∇V[5] * b / Izz 
+
+            V = Fxf_coeff * uR.Fxf + Fyf_coeff * uR.Fxr + Fyf_coeff * Fyf + Fyr_coeff * Fyr
+
+            if (sgn > 0 && V > V_opt) || (sgn < 0 && V < V_opt)
+                Fx_opt = Fx
+                δ_opt = δ
+                V_opt  = V
+            end
+        end
+    end
+    Bi
+end
+
+# for car-car relative dynamics
 function compute_reachability_constraint(X::VehicleModel, cache::HJICache, relative_state::HJIRelativeState, ϵ,
                                          uR_lin=optimal_control(X, relative_state, cache[relative_state].∇V))    # definitely not the correct choice...
     V, ∇V = cache[relative_state]
@@ -175,5 +291,17 @@ function compute_reachability_constraint(X::VehicleModel, cache::HJICache, relat
         uH_opt = optimal_disturbance(X, relative_state, ∇V)
         ∇H_uR = ForwardDiff.gradient(uR -> dot(∇V, relative_dynamics(X, SVector(relative_state), uR, SVector(uH_opt))), SVector(uR_lin))
         (M=∇H_uR, b=dot(∇V, relative_dynamics(X, relative_state, uR_lin, uH_opt)) - dot(∇H_uR, uR_lin)) # so that H = dot(∇V, uR) ≈ ∇H_uR*uR + c
+    end
+end
+
+# for car-wall relative dynamics
+function compute_reachability_constraint(X::VehicleModel, cache::HJIWallCache, relative_state::HJIWallRelativeState, ϵ,
+                                         uR_lin=optimal_control(X, relative_state, cache[relative_state].∇V))    # definitely not the correct choice...
+    V, ∇V = cache[relative_state]
+    if V > ϵ
+        (M=SVector{2,Float64}(0, 0), b=1.0)
+    else
+        ∇H_uR = ForwardDiff.gradient(uR -> dot(∇V, relative_dynamics(X, SVector(relative_state), uR)), SVector(uR_lin))
+        (M=∇H_uR, b=dot(∇V, relative_dynamics(X, relative_state, uR_lin)) - dot(∇H_uR, uR_lin)) # so that H = dot(∇V, uR) ≈ ∇H_uR*uR + c
     end
 end

@@ -43,12 +43,13 @@ function CoupledControlParams(;V_min=1.0,
                                W_β=50/(10*π/180),
                                W_r=50.0,
                                W_HJI=500.0,
+                               W_WALL=500.0,
                                N_HJI=3,
                                R_δ=0.0,
                                R_Δδ=0.1,
                                R_Fx=0.0,
                                R_ΔFx=0.5)
-    CoupledControlParams(V_min, V_max, k_V, k_s, δ̇_max, Q_Δs, Q_Δψ, Q_e, W_β, W_r, W_HJI, N_HJI, R_δ, R_Δδ, R_Fx, R_ΔFx)
+    CoupledControlParams(V_min, V_max, k_V, k_s, δ̇_max, Q_Δs, Q_Δψ, Q_e, W_β, W_r, W_HJI, W_WALL, N_HJI, R_δ, R_Δδ, R_Fx, R_ΔFx)
 end
 
 # constructs coupled (lat + long) trajectory tracking MPC
@@ -169,6 +170,7 @@ struct TrackingQPParams{T}
     W_β   ::Parameter{Vector{T},typeof(identity),true}
     W_r   ::Parameter{Vector{T},typeof(identity),true}
     W_HJI ::Parameter{Vector{T},typeof(identity),true}
+    W_WALL::Parameter{Vector{T},typeof(identity),true}
     q_curr::Parameter{Vector{T},typeof(identity),true}
     u_curr::Parameter{Vector{T},typeof(identity),true}
     M_HJI ::Parameter{Matrix{T},typeof(identity),true}
@@ -237,6 +239,7 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
     W_β    = Parameter(control_params.W_β .* dt, m)
     W_r    = Parameter(control_params.W_r .* dt, m)
     W_HJI  = Parameter(control_params.W_HJI .* ones(N_short), m)
+    W_WALL = Parameter(control_params.W_WALL .* ones(N_short), m)
     q_curr = Parameter(Array(qs[1]), m)
     u_curr = Parameter(Array(us[1] ./ u_normalization), m)
     M_HJI  = Parameter(zeros(T, 1, 2), m)
@@ -336,8 +339,8 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
                        transpose(ΔFx)*R_ΔFx*ΔFx +
                        W_β⋅σ1 + W_r⋅σ2 + W_HJI⋅σ_HJI + W_WALL⋅σ_WALL
     @objective(m, Minimize, obj)
-    m, TrackingQPVariables(q, u, σ, σ_HJI, u_normalization), TrackingQPParams(Q_Δs, Q_Δψ, Q_e, R_δ, R_Δδ, R_Fx, R_ΔFx, W_β, W_r, W_HJI,
-                                                                              q_curr, u_curr, M_HJI, b_HJI, A, B, B0, Bf, c, H, G,
+    m, TrackingQPVariables(q, u, σ, σ_HJI, σ_WALL, u_normalization), TrackingQPParams(Q_Δs, Q_Δψ, Q_e, R_δ, R_Δδ, R_Fx, R_ΔFx, W_β, W_r, W_HJI, W_WALL,
+                                                                              q_curr, u_curr, M_HJI, b_HJI, M_WALL, b_WALL, A, B, B0, Bf, c, H, G,
                                                                               δ_min, δ_max, Fx_max, Δδ_min, Δδ_max)
 end
 
@@ -377,12 +380,12 @@ function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
     QPP.b_HJI() .= b
 
     # HJI constraint for wall dynamics
-    relative_state = WALLRelativeState(mpc.current_state, mpc.wall)
-    M, b = compute_reachability_constraint_wall(mpc.dynamics, mpc.WALL_cache, relative_state, mpc.HJI_ϵ, BicycleControl2(mpc.current_control))
+    relative_state = HJIWallRelativeState(mpc.current_state, mpc.wall)  # TO DO
+    M, b = compute_reachability_constraint(mpc.dynamics, mpc.WALL_cache, relative_state, mpc.HJI_ϵ, BicycleControl2(mpc.current_control))
     # QPP.W_HJI() .= control_params.W_HJI .* ones(N_short)
     QPP.W_WALL() .= control_params.W_WALL .* [ones(control_params.N_HJI); zeros(N_short - control_params.N_HJI)]
-    QPP.M_HJI() .= (M .* u_normalization)'
-    QPP.b_HJI() .= b
+    QPP.M_WALL() .= (M .* u_normalization)'
+    QPP.b_WALL() .= b
     for t in N_short+1:N_short+N_long
         FOHt = linearize(dynamics, qs[t], RampControl(dt[t], [us[t]; ps[t]], [us[t+1]; ps[t+1]]), keep_control_dims=SVector(1,2))
         QPP.A[t]() .= FOHt.A

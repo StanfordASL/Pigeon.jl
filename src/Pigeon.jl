@@ -14,7 +14,7 @@ const MOI = MathOptInterface
 using Parametron
 using RobotOS
 using JLD2
-# using MAT
+using MAT
 
 import StaticArrays: SUnitRange
 import DifferentialDynamicsModels: mod2piF, adiff
@@ -29,7 +29,8 @@ include("HJI_computation.jl")
 include("trajectories.jl")
 include("model_predictive_control.jl")
 include("decoupled_lat_long.jl")
-include("coupled_lat_long.jl")
+# include("coupled_lat_long.jl")
+include("coupled_lat_long_with_wall.jl")
 
 const X1DMPC = DecoupledTrajectoryTrackingMPC(X1(), straight_trajectory(30., 5.))
 const X1CMPC = CoupledTrajectoryTrackingMPC(X1(), straight_trajectory(30., 5.), N_short=5, N_long=10)
@@ -38,6 +39,7 @@ X1DMPC.current_control = BicycleControl(0., 0., 0.)
 X1CMPC.current_state = BicycleState(0., 0., 0., 5., 0., 0.)
 X1CMPC.current_control = BicycleControl(0., 0., 0.)
 X1CMPC.HJI_cache = HJICache(joinpath(@__DIR__, "../deps/BicycleCAvoid.jld2"))
+X1CMPC.WALL_cache = HJIWallCache(joinpath(@__DIR__, "../deps/BicycleWall.mat"))
 
 include("ros_integration.jl")
 

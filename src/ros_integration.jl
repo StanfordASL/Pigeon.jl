@@ -155,9 +155,21 @@ function other_car_callback(msg::XYThV, mpc=X1CMPC)
 end
 
 ### ROS node init
-function start_ROS_node()
+function start_ROS_node(roadway_name="west_paddock", traj_mpc=X1CMPC)
     init_node("pigeon", anonymous=false)
     other_car = RobotOS.get_param("human", "/xbox_car")
+    roadway = RobotOS.get_param(roadway_name)
+    θ = roadway["angle"]
+    w = roadway["lane_width"]
+    x0, y0 = roadway["start_mid"]
+    x0 += w * sin(θ)
+    y0 -= w * cos(θ)
+    a = tan(θ)
+    b = -1
+    c = y0 - tan(θ) * x0
+    X1CMPC.wall = SVector{4, Float32}([a, b, c, θ])
+
+
     to_autobox_pub = Publisher{to_autobox}("/to_autobox", queue_size=10)
     HJI_values_pub = Publisher{Marker}("/HJI_values", queue_size=1)
     HJI_contour_pub = Publisher{Marker}("/HJI_contour", queue_size=1)
