@@ -1,14 +1,27 @@
-@rosimport std_msgs.msg: ColorRGBA
-@rosimport geometry_msgs.msg: Point
+@rosimport std_msgs.msg: ColorRGBA, Header
+@rosimport geometry_msgs.msg: Point, TransformStamped, Transform
 @rosimport visualization_msgs.msg: Marker
 @rosimport safe_traffic_weaving.msg: VehicleTrajectory, path, XYThV
 @rosimport auto_messages.msg: from_autobox, to_autobox
 rostypegen(@__MODULE__)
-import .std_msgs.msg: ColorRGBA
-import .geometry_msgs.msg: Point
+import .std_msgs.msg: ColorRGBA, Header
+import .geometry_msgs.msg: Point, TransformStamped, Transform
 import .visualization_msgs.msg: Marker
 import .safe_traffic_weaving.msg: VehicleTrajectory, path, XYThV
 import .auto_messages.msg: from_autobox, to_autobox
+
+
+function fill_2D_transform!(t::TransformStamped, x, y, θ, stamp = RobotOS.now())
+    t.header.stamp = stamp
+    t.transform.translation.x = x
+    t.transform.translation.y = y
+    q = Quat(RotZYX(θ, 0, 0))    # tf.transformations[:quaternion_from_euler](0.0, 0.0, θ)
+    t.transform.rotation.x = q.x
+    t.transform.rotation.y = q.y
+    t.transform.rotation.z = q.z
+    t.transform.rotation.w = q.w
+    t
+end
 
 TrajectoryTube(p::path) = TrajectoryTube{Float64}(
     invcumtrapz(p.Ux_des_mps, p.s_m), p.s_m, p.Ux_des_mps, p.Ax_des_mps2,
@@ -45,7 +58,7 @@ const to_autobox_msg = to_autobox()
 
 ### /from_autobox
 const use_HJI_policy = fill(false)
-function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub, HJI_contour_pub, path_mpc=X1DMPC, traj_mpc=X1CMPC)
+function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, wall, WALL_value_pub, path_mpc=X1DMPC, traj_mpc=X1CMPC)
     mpc = (tracking_mode[] == :path ? path_mpc : traj_mpc)
     mpc.current_state = BicycleState(msg.E_m, msg.N_m, msg.psi_rad, msg.ux_mps, msg.uy_mps, msg.r_radps)
     # mpc.current_control = BicycleControl(msg.delta_rad, msg.fxf_N, msg.fxr_N)
@@ -54,14 +67,36 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
 
     ###### TODO: very messy
     relative_state = HJIRelativeState(mpc.current_state, traj_mpc.other_car_state)
-    V, ∇V = mpc.HJI_cache[relative_state]
-    show_loginfo[] && RobotOS.loginfo("Pigeon MPC: HJI value function = $V")
-    # show_loginfo[] && RobotOS.loginfo("Pigeon MPC: HJI relative state = $(relative_state)")
+    V_car, ∇V_car = mpc.HJI_cache[relative_state]
+    show_loginfo[] && RobotOS.logwarn("Pigeon MPC: HJI value function = $V_car")
+    M_car, b_car = compute_reachability_constraint(mpc.dynamics, mpc.HJI_cache, relative_state, mpc.HJI_ϵ, BicycleControl2(mpc.current_control))
+
+
+    wall_relative_state = WALLRelativeState(mpc.current_state, wall)   
+    V_wall, ∇V_wall = mpc.WALL_cache[wall_relative_state]
+    WALL_value.x = V_wall
+    publish(WALL_value_pub, WALL_value)
+    show_loginfo[] && RobotOS.logwarn("Pigeon MPC: WALL value function = $V_wall")
+    M_wall, b_wall = compute_reachability_constraint(mpc.dynamics, mpc.WALL_cache, wall_relative_state, mpc.HJI_ϵ, mpc.wall, BicycleControl2(mpc.current_control))
+
+
+    danger = V_car <= V_wall ? "car" : "wall"
+    V = V_car <= V_wall ? V_car : V_wall
+    ∇V = V_car <= V_wall ? ∇V_car : ∇V_wall 
+    RobotOS.logwarn("Pigeon MPC: Worst HJI value is from = $danger with value $V and M = $M and b = $b")
     try
         update_HJI_values_marker!(HJI_values_marker, relative_state)
         update_HJI_contour_marker!(HJI_contour_marker, relative_state)
         publish(HJI_values_pub, HJI_values_marker)
         publish(HJI_contour_pub, HJI_contour_marker)
+
+
+        # update_WALL_values_marker!(WALL_values_marker, relative_state)
+        # update_WALL_contour_marker!(WALL_contour_marker, relative_state)
+
+        # publish(WALL_values_pub, WALL_values_marker)
+        # publish(WALL_contour_pub, WALL_contour_marker)
+
     catch err
         RobotOS.logwarn("HJI Visualization Error: $err\n$(stacktrace(catch_backtrace()))")
     end
@@ -107,6 +142,8 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
     else
         show_loginfo[] && RobotOS.loginfo("Pigeon MPC: OSQP took $(1000*t_elapsed) ms at heartbeat $(mpc.heartbeat)")
     end
+
+
     # show_loginfo[] && RobotOS.loginfo("Pigeon MPC: $(mpc.model.optimizer.results.info)")
     # show_loginfo[] && RobotOS.loginfo("deltas: $(value.(mpc.model, mpc.variables.δ))")
     mpc.heartbeat += 1
@@ -122,6 +159,9 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
             RobotOS.logwarn("Pigeon MPC: HJI value function = $V")
         end
         u_next = get_next_control(mpc)
+
+        δ, Fxf, Fxr = u_next
+        Fx = Fxf + Fxr
     end
     to_autobox_msg.header.stamp  = RobotOS.now()
     to_autobox_msg.post_flag     = 1    # TODO: check for OSQP failure
@@ -158,24 +198,27 @@ end
 function start_ROS_node(roadway_name="west_paddock", traj_mpc=X1CMPC)
     init_node("pigeon", anonymous=false)
     other_car = RobotOS.get_param("human", "/xbox_car")
-    roadway = RobotOS.get_param(roadway_name)
+    roadway = RobotOS.get_param("roadway")
     θ = roadway["angle"]
     w = roadway["lane_width"]
     x0, y0 = roadway["start_mid"]
-    x0 += w * sin(θ)
-    y0 -= w * cos(θ)
-    a = tan(θ)
-    b = -1
-    c = y0 - tan(θ) * x0
+    x0 += 1.2*w * sin(θ)
+    y0 -= 1.2*w * cos(θ)
+    a = -sin(θ)
+    b = cos(θ)
+    c = sin(θ) * x0 - y0 * cos(θ)
     X1CMPC.wall = SVector{4, Float32}([a, b, c, θ])
 
 
     to_autobox_pub = Publisher{to_autobox}("/to_autobox", queue_size=10)
     HJI_values_pub = Publisher{Marker}("/HJI_values", queue_size=1)
     HJI_contour_pub = Publisher{Marker}("/HJI_contour", queue_size=1)
+    WALL_values_pub = Publisher{Marker}("/WALL_values", queue_size=1)
+    WALL_contour_pub = Publisher{Marker}("/WALL_contour", queue_size=1)
+    WALL_value_pub = Publisher{Point}("/WALL_value", queue_size=1)
     Subscriber{path}("/des_path", nominal_trajectory_callback, queue_size=1)
     Subscriber{VehicleTrajectory}("/des_traj", nominal_trajectory_callback, queue_size=1)
-    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub, HJI_values_pub, HJI_contour_pub), queue_size=1)
+    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, X1CMPC.wall, WALL_value_pub), queue_size=1)
     Subscriber{XYThV}("$(other_car)/xythv", other_car_callback, queue_size=1)    # TODO: abstract with a republisher
     @spawn spin()
 end

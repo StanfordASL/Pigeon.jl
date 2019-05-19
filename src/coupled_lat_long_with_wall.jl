@@ -43,7 +43,7 @@ function CoupledControlParams(;V_min=1.0,
                                W_β=50/(10*π/180),
                                W_r=50.0,
                                W_HJI=500.0,
-                               W_WALL=500.0,
+                               W_WALL=1000.0,
                                N_HJI=3,
                                R_δ=0.0,
                                R_Δδ=0.1,
@@ -259,6 +259,7 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
     Δδ_min = Parameter{Vector{T},typeof(identity),true}[]
     Δδ_max = Parameter{Vector{T},typeof(identity),true}[]
 
+
     q     = [Variable(m) for i in 1:6, t in 1:N_short+N_long+1]    # (Δs, Ux, Uy, r, Δψ, e)
     u     = [Variable(m) for i in 1:2, t in 1:N_short+N_long+1]    # (δ, Fx)
     σ     = [Variable(m) for i in 1:2, t in 1:N_short+N_long]
@@ -321,6 +322,7 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
         @constraint(m, Ht*Uy_r - Gt <= σt)
         @constraint(m, Δδt <= Δδ_maxt)
         @constraint(m, Δδt >= Δδ_mint)
+
     end
 
     Δs   = q[1,2:end]
@@ -380,12 +382,13 @@ function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
     QPP.b_HJI() .= b
 
     # HJI constraint for wall dynamics
-    relative_state = HJIWallRelativeState(mpc.current_state, mpc.wall)  # TO DO
-    M, b = compute_reachability_constraint(mpc.dynamics, mpc.WALL_cache, relative_state, mpc.HJI_ϵ, BicycleControl2(mpc.current_control))
+    relative_state = WALLRelativeState(mpc.current_state, mpc.wall)
+    M, b = compute_reachability_constraint(mpc.dynamics, mpc.WALL_cache, relative_state, mpc.HJI_ϵ, mpc.wall, BicycleControl2(mpc.current_control))
     # QPP.W_HJI() .= control_params.W_HJI .* ones(N_short)
     QPP.W_WALL() .= control_params.W_WALL .* [ones(control_params.N_HJI); zeros(N_short - control_params.N_HJI)]
     QPP.M_WALL() .= (M .* u_normalization)'
     QPP.b_WALL() .= b
+
     for t in N_short+1:N_short+N_long
         FOHt = linearize(dynamics, qs[t], RampControl(dt[t], [us[t]; ps[t]], [us[t+1]; ps[t+1]]), keep_control_dims=SVector(1,2))
         QPP.A[t]() .= FOHt.A
