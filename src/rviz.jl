@@ -30,14 +30,14 @@ function initialize_WALL_values_marker!(m, cache=X1CMPC.WALL_cache)
     m.scale.z = 1.0
     m.frame_locked = true
     Y = cache.grid_knots[1]
-    X = collect(range(-3, stop=5, length=17))
-    for i in 1:length(X)-1, j in 1:length(Y)-1
-        push!(m.points, Point(X[i]  , Y[j]  , -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
-        push!(m.points, Point(X[i+1], Y[j]  , -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
-        push!(m.points, Point(X[i+1], Y[j+1], -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
-        push!(m.points, Point(X[i]  , Y[j]  , -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
-        push!(m.points, Point(X[i]  , Y[j+1], -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
-        push!(m.points, Point(X[i+1], Y[j+1], -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
+    # X = collect(range(-3, stop=5, length=17))
+    for i in 1:length(Y)-1, j in 1:length(Y)-1
+        push!(m.points, Point(Y[i]  , Y[j]  , -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
+        push!(m.points, Point(Y[i+1], Y[j]  , -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
+        push!(m.points, Point(Y[i+1], Y[j+1], -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
+        push!(m.points, Point(Y[i]  , Y[j]  , -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
+        push!(m.points, Point(Y[i]  , Y[j+1], -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
+        push!(m.points, Point(Y[i+1], Y[j+1], -0.1)); push!(m.colors, ColorRGBA(1.0, 1.0, 1.0, 1.0))
     end
 end
 
@@ -62,15 +62,15 @@ end
 
 function update_WALL_values_marker!(m, q, cache=X1CMPC.WALL_cache)
     Y = cache.grid_knots[1]
-    X = collect(range(-3, stop=5, length=17))
+    # X = collect(range(-3, stop=5, length=17))
     ct = 1
-    for i in 1:length(X)-1, j in 1:length(Y)-1
-        for (x,y) in ((X[i]  , Y[j]  ),
-                      (X[i+1], Y[j]  ),
-                      (X[i+1], Y[j+1]),
-                      (X[i]  , Y[j]  ),
-                      (X[i]  , Y[j+1]),
-                      (X[i+1], Y[j+1]))
+    for i in 1:length(Y)-1, j in 1:length(Y)-1
+        for (x,y) in ((Y[i]  , Y[j]  ),
+                      (Y[i+1], Y[j]  ),
+                      (Y[i+1], Y[j+1]),
+                      (Y[i]  , Y[j]  ),
+                      (Y[i]  , Y[j+1]),
+                      (Y[i+1], Y[j+1]))
             q = WALLRelativeState{Float32}(y, q[2], q[3], q[4], q[5])
             color = m.colors[ct]
             color.r, color.g, color.b = value_to_RGB(cache[q].V)
@@ -140,5 +140,3 @@ const WALL_contour_marker = Marker()
 
 initialize_HJI_contour_marker!(HJI_contour_marker)
 initialize_WALL_contour_marker!(WALL_contour_marker)
-
-const WALL_value = Point()

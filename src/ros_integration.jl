@@ -58,7 +58,7 @@ const to_autobox_msg = to_autobox()
 
 ### /from_autobox
 const use_HJI_policy = fill(false)
-function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, wall, WALL_value_pub, path_mpc=X1DMPC, traj_mpc=X1CMPC)
+function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, wall, path_mpc=X1DMPC, traj_mpc=X1CMPC)
     mpc = (tracking_mode[] == :path ? path_mpc : traj_mpc)
     mpc.current_state = BicycleState(msg.E_m, msg.N_m, msg.psi_rad, msg.ux_mps, msg.uy_mps, msg.r_radps)
     # mpc.current_control = BicycleControl(msg.delta_rad, msg.fxf_N, msg.fxr_N)
@@ -69,21 +69,14 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
     relative_state = HJIRelativeState(mpc.current_state, traj_mpc.other_car_state)
     V_car, ∇V_car = mpc.HJI_cache[relative_state]
     show_loginfo[] && RobotOS.logwarn("Pigeon MPC: HJI value function = $V_car")
-    M_car, b_car = compute_reachability_constraint(mpc.dynamics, mpc.HJI_cache, relative_state, mpc.HJI_ϵ, BicycleControl2(mpc.current_control))
-
 
     wall_relative_state = WALLRelativeState(mpc.current_state, wall)   
-    V_wall, ∇V_wall = mpc.WALL_cache[wall_relative_state]
-    WALL_value.x = V_wall
-    publish(WALL_value_pub, WALL_value)
+    V_wall, ∇V_wall = mpc.WALL_cache[wall_relative_state]  
     show_loginfo[] && RobotOS.logwarn("Pigeon MPC: WALL value function = $V_wall")
-    M_wall, b_wall = compute_reachability_constraint(mpc.dynamics, mpc.WALL_cache, wall_relative_state, mpc.HJI_ϵ, mpc.wall, BicycleControl2(mpc.current_control))
-
 
     danger = V_car <= V_wall ? "car" : "wall"
     V = V_car <= V_wall ? V_car : V_wall
     ∇V = V_car <= V_wall ? ∇V_car : ∇V_wall 
-    RobotOS.logwarn("Pigeon MPC: Worst HJI value is from = $danger with value $V and M = $M and b = $b")
     try
         update_HJI_values_marker!(HJI_values_marker, relative_state)
         update_HJI_contour_marker!(HJI_contour_marker, relative_state)
@@ -159,9 +152,6 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
             RobotOS.logwarn("Pigeon MPC: HJI value function = $V")
         end
         u_next = get_next_control(mpc)
-
-        δ, Fxf, Fxr = u_next
-        Fx = Fxf + Fxr
     end
     to_autobox_msg.header.stamp  = RobotOS.now()
     to_autobox_msg.post_flag     = 1    # TODO: check for OSQP failure
@@ -215,10 +205,9 @@ function start_ROS_node(roadway_name="west_paddock", traj_mpc=X1CMPC)
     HJI_contour_pub = Publisher{Marker}("/HJI_contour", queue_size=1)
     WALL_values_pub = Publisher{Marker}("/WALL_values", queue_size=1)
     WALL_contour_pub = Publisher{Marker}("/WALL_contour", queue_size=1)
-    WALL_value_pub = Publisher{Point}("/WALL_value", queue_size=1)
     Subscriber{path}("/des_path", nominal_trajectory_callback, queue_size=1)
     Subscriber{VehicleTrajectory}("/des_traj", nominal_trajectory_callback, queue_size=1)
-    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, X1CMPC.wall, WALL_value_pub), queue_size=1)
+    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, X1CMPC.wall), queue_size=1)
     Subscriber{XYThV}("$(other_car)/xythv", other_car_callback, queue_size=1)    # TODO: abstract with a republisher
     @spawn spin()
 end
