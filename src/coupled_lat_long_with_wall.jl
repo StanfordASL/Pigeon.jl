@@ -19,6 +19,7 @@ struct CoupledControlParams{T}
     W_r::T                      # slack variable weight for stability envelope (2)
     W_HJI::T                    # slack variable weight for HJI (relative car)
     W_WALL::T                   # slack variable weight for HJI (wall)
+    W_erbd::T                   # slack variable weight for right lateral bound
 
     # extra stuff
     N_HJI::Int                  # number of time steps to apply the HJI constraint
@@ -42,14 +43,15 @@ function CoupledControlParams(;V_min=1.0,
                                Q_e=1.0,
                                W_β=50/(10*π/180),
                                W_r=50.0,
-                               W_HJI=500.0,
-                               W_WALL=1000.0,
+                               W_HJI=100.0,
+                               W_WALL=0.0,
+                               W_erbd=500.0,
                                N_HJI=3,
                                R_δ=0.0,
                                R_Δδ=0.1,
                                R_Fx=0.0,
                                R_ΔFx=0.5)
-    CoupledControlParams(V_min, V_max, k_V, k_s, δ̇_max, Q_Δs, Q_Δψ, Q_e, W_β, W_r, W_HJI, W_WALL, N_HJI, R_δ, R_Δδ, R_Fx, R_ΔFx)
+    CoupledControlParams(V_min, V_max, k_V, k_s, δ̇_max, Q_Δs, Q_Δψ, Q_e, W_β, W_r, W_HJI, W_WALL, W_erbd,N_HJI, R_δ, R_Δδ, R_Fx, R_ΔFx)
 end
 
 # constructs coupled (lat + long) trajectory tracking MPC
@@ -74,6 +76,17 @@ function CoupledTrajectoryTrackingMPC(vehicle::Dict{Symbol,T}, trajectory::Traje
                           time_steps,
                           qs, us, ps,
                           tracking_dynamics, model, variables, parameters)
+end
+
+function compute_right_lateral_bound(state, wall)
+    a, b, c, ϕ = wall
+    ψ = pi/2 + state.ψ
+    a_bar, b_bar = sincos(-ψ)
+    -abs(a * state.E + b * state.N + c) / abs(a * a_bar + b * b_bar)
+end
+function compute_left_lateral_bound(state, wall)
+    # TO DO compute left lateral bound using left wall.
+    100.0
 end
 
 function compute_linearization_nodes!(mpc::TrajectoryTrackingMPC{T},
@@ -171,6 +184,7 @@ struct TrackingQPParams{T}
     W_r   ::Parameter{Vector{T},typeof(identity),true}
     W_HJI ::Parameter{Vector{T},typeof(identity),true}
     W_WALL::Parameter{Vector{T},typeof(identity),true}
+    W_erbd::Parameter{Vector{T},typeof(identity),true}
     q_curr::Parameter{Vector{T},typeof(identity),true}
     u_curr::Parameter{Vector{T},typeof(identity),true}
     M_HJI ::Parameter{Matrix{T},typeof(identity),true}
@@ -189,6 +203,9 @@ struct TrackingQPParams{T}
     Fx_max::Vector{Parameter{Vector{T},typeof(identity),true}}
     Δδ_min::Vector{Parameter{Vector{T},typeof(identity),true}}
     Δδ_max::Vector{Parameter{Vector{T},typeof(identity),true}}
+    # lateral bounds
+    e_rbds::Vector{Parameter{Vector{T},typeof(identity),true}}
+    e_lbds::Vector{Parameter{Vector{T},typeof(identity),true}}
 end
 
 # optimisation variables for tracking MPC problem
@@ -198,16 +215,17 @@ struct TrackingQPVariables{T}
     σ::Matrix{Variable}
     σ_HJI::Vector{Variable}
     σ_WALL::Vector{Variable}
+    σ_erbd::Vector{Variable}
     u_normalization::SVector{2,T}
     # interpolation over the desired time steps
     q_interp::GriddedInterpolation{TrackingBicycleState{T},1,TrackingBicycleState{T},Gridded{Linear},Tuple{Vector{T}}}
     u_interp::GriddedInterpolation{BicycleControl2{T},1,BicycleControl2{T},Gridded{Linear},Tuple{Vector{T}}}
 end
-function TrackingQPVariables(q::Matrix{Variable}, u::Matrix{Variable}, σ::Matrix{Variable}, σ_HJI::Vector{Variable}, σ_WALL::Vector{Variable}, u_normalization::SVector{2,T}) where {T}
+function TrackingQPVariables(q::Matrix{Variable}, u::Matrix{Variable}, σ::Matrix{Variable}, σ_HJI::Vector{Variable}, σ_WALL::Vector{Variable}, σ_erbd::Vector{Variable}, u_normalization::SVector{2,T}) where {T}
     N = size(q, 2)
     q_interp = interpolate(T, TrackingBicycleState{T}, (T.(1:N),), zeros(TrackingBicycleState{T}, N), Gridded(Linear()))
     u_interp = interpolate(T, BicycleControl2{T}, (T.(1:N),), zeros(BicycleControl2{T}, N), Gridded(Linear()))
-    TrackingQPVariables(q, u, σ, σ_HJI, σ_WALL, u_normalization, q_interp, u_interp)
+    TrackingQPVariables(q, u, σ, σ_HJI, σ_WALL, σ_erbd, u_normalization, q_interp, u_interp)
 end
 
 function update_interpolations!(variables::TrackingQPVariables, model::Model{T}, prev_ts) where {T}
@@ -240,6 +258,7 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
     W_r    = Parameter(control_params.W_r .* dt, m)
     W_HJI  = Parameter(control_params.W_HJI .* ones(N_short), m)
     W_WALL = Parameter(control_params.W_WALL .* ones(N_short), m)
+    W_erbd = Parameter(control_params.W_erbd .* ones(N_short+N_long), m)
     q_curr = Parameter(Array(qs[1]), m)
     u_curr = Parameter(Array(us[1] ./ u_normalization), m)
     M_HJI  = Parameter(zeros(T, 1, 2), m)
@@ -258,13 +277,17 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
     Fx_max = Parameter{Vector{T},typeof(identity),true}[]
     Δδ_min = Parameter{Vector{T},typeof(identity),true}[]
     Δδ_max = Parameter{Vector{T},typeof(identity),true}[]
+    # lateral bounds
+    e_rbds = Parameter{Vector{T},typeof(identity),true}[]
+    e_lbds = Parameter{Vector{T},typeof(identity),true}[]
 
 
     q     = [Variable(m) for i in 1:6, t in 1:N_short+N_long+1]    # (Δs, Ux, Uy, r, Δψ, e)
     u     = [Variable(m) for i in 1:2, t in 1:N_short+N_long+1]    # (δ, Fx)
     σ     = [Variable(m) for i in 1:2, t in 1:N_short+N_long]
     σ_HJI = [Variable(m) for t in 1:N_short]
-    σ_WALL= [Variable(m) for t in 1:N_short]   
+    σ_WALL= [Variable(m) for t in 1:N_short]
+    σ_erbd= [Variable(m) for t in 1:N_short+N_long]  
     Δδ    = [Variable(m) for t in 1:N_short+N_long]
     ΔFx   = [Variable(m) for t in 1:N_short+N_long]
     δ     = u[1,:]
@@ -273,6 +296,7 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
     @constraint(m, vec(σ) >= fill(T(0), 2*(N_short+N_long)))
     @constraint(m, σ_HJI  >= fill(T(0), N_short))
     @constraint(m, σ_WALL  >= fill(T(0), N_short))
+    @constraint(m, σ_erbd  >= fill(T(0), N_short+N_long))
     @constraint(m, diff(δ) == Δδ)
     @constraint(m, diff(Fx) == ΔFx)
     @constraint(m, Ux >= fill(control_params.V_min, N_short+N_long+1))    # may need slacks
@@ -316,6 +340,14 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
         Δδt  = [Δδ[t]]
         Δδ_mint = push!(Δδ_min, Parameter([-δ̇_max*dt[t] / u_normalization[1]], m))[end]
         Δδ_maxt = push!(Δδ_max, Parameter([ δ̇_max*dt[t] / u_normalization[1]], m))[end]
+        # lateral bounds
+        e_rbdt  = push!(e_rbds,  Parameter([-100.0], m))[end]
+        e_lbdt  = push!(e_lbds,  Parameter([100.0], m))[end]
+        σ_erbdt = [σ_erbd[t]]
+        @constraint(m, [q[6,t+1]] - e_rbdt >= -σ_erbdt)
+        # @constraint(m, [q[6,t+1]] >= e_rbdt + σ_erbdt)
+        @constraint(m, [q[6,t+1]] <= e_lbdt)
+
         @constraint(m, [δ[t+1]] <= δ_maxt)
         @constraint(m, [δ[t+1]] >= δ_mint)
         @constraint(m, [Fx[t+1]] <= Fx_maxt)
@@ -339,15 +371,16 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
                        transpose(Δδ)*R_Δδ*Δδ +
                        transpose(Fx⁺)*R_Fx*Fx⁺ +
                        transpose(ΔFx)*R_ΔFx*ΔFx +
-                       W_β⋅σ1 + W_r⋅σ2 + W_HJI⋅σ_HJI + W_WALL⋅σ_WALL
+                       W_β⋅σ1 + W_r⋅σ2 + W_HJI⋅σ_HJI + W_WALL⋅σ_WALL + W_erbd⋅σ_erbd
     @objective(m, Minimize, obj)
-    m, TrackingQPVariables(q, u, σ, σ_HJI, σ_WALL, u_normalization), TrackingQPParams(Q_Δs, Q_Δψ, Q_e, R_δ, R_Δδ, R_Fx, R_ΔFx, W_β, W_r, W_HJI, W_WALL,
+    m, TrackingQPVariables(q, u, σ, σ_HJI, σ_WALL, σ_erbd, u_normalization), TrackingQPParams(Q_Δs, Q_Δψ, Q_e, R_δ, R_Δδ, R_Fx, R_ΔFx, W_β, W_r, W_HJI, W_WALL, W_erbd,
                                                                               q_curr, u_curr, M_HJI, b_HJI, M_WALL, b_WALL, A, B, B0, Bf, c, H, G,
-                                                                              δ_min, δ_max, Fx_max, Δδ_min, Δδ_max)
+                                                                              δ_min, δ_max, Fx_max, Δδ_min, Δδ_max, e_rbds, e_lbds)
 end
 
 function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
     dynamics = mpc.tracking_dynamics
+    traj = mpc.trajectory
     control_params  = mpc.control_params
     time_steps = mpc.time_steps
     N_short, N_long, dt = time_steps.N_short, time_steps.N_long, time_steps.dt
@@ -409,6 +442,10 @@ function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
         QPP.Fx_max[t]() .= min(Px_max/Uxt, Fx_max) / u_normalization[2]
         QPP.Δδ_min[t]() .= -δ̇_max*dt[t] / u_normalization[1]
         QPP.Δδ_max[t]() .=  δ̇_max*dt[t] / u_normalization[1]
+        # lateral bound constraints
+        trajt = traj(time_steps.ts[t+1])
+        QPP.e_rbds[t]() .= compute_right_lateral_bound(trajt, mpc.wall)
+        QPP.e_lbds[t]() .= compute_left_lateral_bound(trajt, mpc.wall)
     end
 end
 
