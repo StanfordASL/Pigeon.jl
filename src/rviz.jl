@@ -140,3 +140,5 @@ const WALL_contour_marker = Marker()
 
 initialize_HJI_contour_marker!(HJI_contour_marker)
 initialize_WALL_contour_marker!(WALL_contour_marker)
+
+const mpc_conv_time = Point()
