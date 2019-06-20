@@ -74,9 +74,17 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
     V_wall, ∇V_wall = mpc.WALL_cache[wall_relative_state]  
     show_loginfo[] && RobotOS.logwarn("Pigeon MPC: WALL value function = $V_wall")
 
-    danger = V_car <= V_wall ? "car" : "wall"
-    V = V_car <= V_wall ? V_car : V_wall
-    ∇V = V_car <= V_wall ? ∇V_car : ∇V_wall 
+
+    # if we are not caring about the wall, the value is always from the other car
+    if (traj_mpc.control_params.W_erbd == 0.0) & (traj_mpc.control_params.W_WALL == 0.0)
+        V = V_car
+        ∇V = ∇V_car
+    else
+        V = V_car <= V_wall ? V_car : V_wall
+        ∇V = V_car <= V_wall ? ∇V_car : ∇V_wall 
+    end
+
+
     try
         update_HJI_values_marker!(HJI_values_marker, relative_state)
         update_HJI_contour_marker!(HJI_contour_marker, relative_state)
@@ -193,8 +201,8 @@ function start_ROS_node(roadway_name="west_paddock", traj_mpc=X1CMPC)
     θ = roadway["angle"]
     w = roadway["lane_width"]
     x0, y0 = roadway["start_mid"]
-    x0 += 1.2*w * sin(θ)
-    y0 -= 1.2*w * cos(θ)
+    x0 += 1.6*w * sin(θ)
+    y0 -= 1.6*w * cos(θ)
     a = -sin(θ)
     b = cos(θ)
     c = sin(θ) * x0 - y0 * cos(θ)

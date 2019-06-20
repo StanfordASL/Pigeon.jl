@@ -78,12 +78,27 @@ function CoupledTrajectoryTrackingMPC(vehicle::Dict{Symbol,T}, trajectory::Traje
                           tracking_dynamics, model, variables, parameters)
 end
 
+
+const X1_params = X1()
+
 function compute_right_lateral_bound(state, wall)
     a, b, c, ϕ = wall
     ψ = pi/2 + state.ψ
     a_bar, b_bar = sincos(-ψ)
-    -abs(a * state.E + b * state.N + c) / abs(a * a_bar + b * b_bar)
+    θ = ψ - ϕ
+    
+    if θ < 0 
+        arm = X1_params[:a]
+    else
+        arm = X1_params[:b]
+    end
+    
+    offset = abs(tan(θ)) * arm + 0.5 * X1_params[:w]
+    d = (a * state.E + b * state.N + c) / (a * a_bar + b * b_bar)
+    return -(d - offset)
+
 end
+
 function compute_left_lateral_bound(state, wall)
     # TO DO compute left lateral bound using left wall.
     100.0
