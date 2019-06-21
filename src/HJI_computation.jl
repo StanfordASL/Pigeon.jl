@@ -116,19 +116,42 @@ function Base.getindex(cache::HJICache, x::HJIRelativeState{T}) where {T}
     if all(cache.grid_knots[i][1] <= x[i] <= cache.grid_knots[i][end] for i in 1:length(cache.grid_knots))
         (V=cache.V(x[1], x[2], x[3], x[4], x[5], x[6], x[7]), ∇V=cache.∇V(x[1], x[2], x[3], x[4], x[5], x[6], x[7]))    # avoid splatting penalty
     else
-        (V=T(Inf), ∇V=zeros(SVector{7,T}))
+        (V=cache.V(max(cache.grid_knots[1][1], min(x[1], cache.grid_knots[1][end])), 
+                   max(cache.grid_knots[2][1], min(x[2], cache.grid_knots[2][end])), 
+                   max(cache.grid_knots[3][1], min(x[3], cache.grid_knots[3][end])), 
+                   max(cache.grid_knots[4][1], min(x[4], cache.grid_knots[4][end])), 
+                   max(cache.grid_knots[5][1], min(x[5], cache.grid_knots[5][end])),
+                   max(cache.grid_knots[6][1], min(x[6], cache.grid_knots[6][end])),
+                   max(cache.grid_knots[7][1], min(x[7], cache.grid_knots[7][end]))), 
+        ∇V=cache.∇V(max(cache.grid_knots[1][1], min(x[1], cache.grid_knots[1][end])), 
+                    max(cache.grid_knots[2][1], min(x[2], cache.grid_knots[2][end])), 
+                    max(cache.grid_knots[3][1], min(x[3], cache.grid_knots[3][end])), 
+                    max(cache.grid_knots[4][1], min(x[4], cache.grid_knots[4][end])), 
+                    max(cache.grid_knots[5][1], min(x[5], cache.grid_knots[5][end])),
+                    max(cache.grid_knots[6][1], min(x[6], cache.grid_knots[6][end])),
+                    max(cache.grid_knots[7][1], min(x[7], cache.grid_knots[7][end]))))
+    # else
+    #     (V=T(Inf), ∇V=zeros(SVector{7,T}))
     end
 end
 
 function Base.getindex(cache::WALLCache, x::WALLRelativeState{T}) where {T}
     if all(cache.grid_knots[i][1] <= x[i] <= cache.grid_knots[i][end] for i in 1:length(cache.grid_knots))
         (V=cache.V(x[1], x[2], x[3], x[4], x[5]), ∇V=cache.∇V(x[1], x[2], x[3], x[4], x[5]))    # avoid splatting penalty
-    elseif x[1] < 0
-        # if past the wall,
-        y_min = cache.grid_knots[1][1]
-        (V=cache.V(y_min, x[2], x[3], x[4], x[5]), ∇V=cache.∇V(y_min, x[2], x[3], x[4], x[5]))
     else
-        (V=T(Inf), ∇V=zeros(SVector{5,T}))
+        # if past the wall,
+        (V=cache.V(max(cache.grid_knots[1][1], min(x[1], cache.grid_knots[1][end])), 
+                   max(cache.grid_knots[2][1], min(x[2], cache.grid_knots[2][end])), 
+                   max(cache.grid_knots[3][1], min(x[3], cache.grid_knots[3][end])), 
+                   max(cache.grid_knots[4][1], min(x[4], cache.grid_knots[4][end])), 
+                   max(cache.grid_knots[5][1], min(x[5], cache.grid_knots[5][end]))), 
+        ∇V=cache.∇V(max(cache.grid_knots[1][1], min(x[1], cache.grid_knots[1][end])), 
+                   max(cache.grid_knots[2][1], min(x[2], cache.grid_knots[2][end])), 
+                   max(cache.grid_knots[3][1], min(x[3], cache.grid_knots[3][end])), 
+                   max(cache.grid_knots[4][1], min(x[4], cache.grid_knots[4][end])), 
+                   max(cache.grid_knots[5][1], min(x[5], cache.grid_knots[5][end]))))
+    # else
+    #     (V=T(Inf), ∇V=zeros(SVector{5,T}))
     end
 end
 

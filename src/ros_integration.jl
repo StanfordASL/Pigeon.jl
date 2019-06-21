@@ -66,8 +66,8 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
     mpc.trajectory = latest_trajectory[]
 
     ###### TODO: very messy
-    relative_state = HJIRelativeState(mpc.current_state, traj_mpc.other_car_state)
-    V_car, ∇V_car = mpc.HJI_cache[relative_state]
+    relative_state_car = HJIRelativeState(mpc.current_state, traj_mpc.other_car_state)
+    V_car, ∇V_car = mpc.HJI_cache[relative_state_car]
     show_loginfo[] && RobotOS.logwarn("Pigeon MPC: HJI value function = $V_car")
 
     wall_relative_state = WALLRelativeState(mpc.current_state, wall)   
@@ -76,18 +76,20 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
 
 
     # if we are not caring about the wall, the value is always from the other car
-    if (traj_mpc.control_params.W_erbd == 0.0) & (traj_mpc.control_params.W_WALL == 0.0)
+    if (traj_mpc.control_params.W_WALL != 0.0)
+        V = V_car <= V_wall ? V_car : V_wall
+        ∇V = V_car <= V_wall ? ∇V_car : ∇V_wall
+        relative_state  = V_car <= V_wall ? relative_state_car : relative_state_wall
+    else
         V = V_car
         ∇V = ∇V_car
-    else
-        V = V_car <= V_wall ? V_car : V_wall
-        ∇V = V_car <= V_wall ? ∇V_car : ∇V_wall 
+        relative_state = relative_state_car
     end
 
 
     try
-        update_HJI_values_marker!(HJI_values_marker, relative_state)
-        update_HJI_contour_marker!(HJI_contour_marker, relative_state)
+        update_HJI_values_marker!(HJI_values_marker, relative_state_car)
+        update_HJI_contour_marker!(HJI_contour_marker, relative_state_car)
         publish(HJI_values_pub, HJI_values_marker)
         publish(HJI_contour_pub, HJI_contour_marker)
 
