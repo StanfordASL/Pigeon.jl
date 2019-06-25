@@ -155,12 +155,12 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
     s, e, _ = path_coordinates(mpc.trajectory, mpc.current_state)
     if tracking_mode[] == :traj && use_HJI_policy[] && V <= mpc.HJI_ϵ
         u_next = BicycleControl(mpc.dynamics.longitudinal_params, optimal_control(mpc.dynamics, relative_state, ∇V))
-        RobotOS.logwarn("Pigeon MPC: HJI stepping in to save the day (with a hammer)")
-        RobotOS.logwarn("Pigeon MPC: HJI value function = $V")
+        RobotOS.logwarn("\n\nPigeon MPC: HJI stepping in to save the day (with a hammer)")
+        RobotOS.logwarn("Pigeon MPC: HJI value function = $V\n\n")
     else
         if tracking_mode[] == :traj && V <= mpc.HJI_ϵ
-            RobotOS.logwarn("Pigeon MPC: HJI stepping in to save the day (with a feather)")
-            RobotOS.logwarn("Pigeon MPC: HJI value function = $V")
+            RobotOS.logwarn("\n\nPigeon MPC: HJI stepping in to save the day (with a feather)")
+            RobotOS.logwarn("Pigeon MPC: HJI value function = $V\n\n")
         end
         u_next = get_next_control(mpc)
     end
