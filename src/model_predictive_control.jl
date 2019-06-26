@@ -57,6 +57,7 @@ mutable struct TrajectoryTrackingMPC{T,C,Q,U,P,QPP,QPV}
     HJI_ϵ::T
 
     wall::Vector{Float32}
+    left_wall::Vector{Float32}
     WALL_cache::WALLCache
 end
 function TrajectoryTrackingMPC(vehicle, trajectory, dynamics, control_params,
@@ -67,7 +68,7 @@ function TrajectoryTrackingMPC(vehicle, trajectory, dynamics, control_params,
                           current_state, current_control, heartbeat, time_offset,
                           time_steps, qs, us, ps,
                           tracking_dynamics, model, variables, parameters, false,
-                          zeros(SimpleCarState{T}), placeholder_HJICache(), T(0.05), Vector{Float32}([0., 0., 0., 0.]), placeholder_WALLCache())
+                          zeros(SimpleCarState{T}), placeholder_HJICache(), T(0.05), Vector{Float32}([0., 0., 0., 0.]), Vector{Float32}([0., 0., 0., 0.]), placeholder_WALLCache())
 end
 
 compute_time_steps!(mpc::TrajectoryTrackingMPC, t0) = compute_time_steps!(mpc.time_steps, t0)

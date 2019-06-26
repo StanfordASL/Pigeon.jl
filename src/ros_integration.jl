@@ -200,16 +200,24 @@ function start_ROS_node(roadway_name="west_paddock", traj_mpc=X1CMPC)
     init_node("pigeon", anonymous=false)
     other_car = RobotOS.get_param("human", "/xbox_car")
     roadway = RobotOS.get_param("roadway")
+    wall_dist_scale = 1.6
     θ = roadway["angle"]
     w = roadway["lane_width"]
     x0, y0 = roadway["start_mid"]
-    x0 += 1.6*w * sin(θ)
-    y0 -= 1.6*w * cos(θ)
+    x0 += wall_dist_scale*w * sin(θ)
+    y0 -= wall_dist_scale*w * cos(θ)
     a = -sin(θ)
     b = cos(θ)
     c = sin(θ) * x0 - y0 * cos(θ)
     X1CMPC.wall = SVector{4, Float32}([a, b, c, θ])
 
+    x0, y0 = roadway["start_mid"]
+    x0 -= wall_dist_scale * sin(θ)
+    y0 += wall_dist_scale * cos(θ)
+    a = sin(θ)
+    b = -cos(θ)
+    c = -sin(θ) * x0 + y0 * cos(θ)
+    X1CMPC.left_wall = SVector{4, Float32}([a, b, c, θ])
 
     to_autobox_pub = Publisher{to_autobox}("/to_autobox", queue_size=10)
     HJI_values_pub = Publisher{Marker}("/HJI_values", queue_size=1)

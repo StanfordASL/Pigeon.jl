@@ -100,8 +100,21 @@ function compute_right_lateral_bound(state, wall)
 end
 
 function compute_left_lateral_bound(state, wall)
-    # TO DO compute left lateral bound using left wall.
-    100.0
+    a, b, c, ϕ = wall
+    ψ = pi/2 + state.ψ
+    a_bar, b_bar = sincos(-ψ)
+    θ = ψ - ϕ
+    
+    if θ > 0 
+        arm = X1_params[:a]
+    else
+        arm = X1_params[:b]
+    end
+    
+    offset = abs(tan(θ)) * arm + 0.5 * X1_params[:w]
+    d = -(a * state.E + b * state.N + c) / (a * a_bar + b * b_bar)
+    return (d - offset)
+
 end
 
 function compute_linearization_nodes!(mpc::TrajectoryTrackingMPC{T},
@@ -460,7 +473,7 @@ function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
         # lateral bound constraints
         trajt = traj(time_steps.ts[t+1])
         QPP.e_rbds[t]() .= compute_right_lateral_bound(trajt, mpc.wall)
-        QPP.e_lbds[t]() .= compute_left_lateral_bound(trajt, mpc.wall)
+        QPP.e_lbds[t]() .= compute_left_lateral_bound(trajt, mpc.left_wall)
     end
 end
 
