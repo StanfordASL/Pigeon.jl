@@ -70,8 +70,8 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
     V_car, ∇V_car = mpc.HJI_cache[relative_state_car]
     show_loginfo[] && RobotOS.logwarn("Pigeon MPC: HJI value function = $V_car")
 
-    wall_relative_state = WALLRelativeState(mpc.current_state, wall)   
-    V_wall, ∇V_wall = mpc.WALL_cache[wall_relative_state]  
+    relative_state_wall = WALLRelativeState(mpc.current_state, wall)   
+    V_wall, ∇V_wall = mpc.WALL_cache[relative_state_wall]  
     show_loginfo[] && RobotOS.logwarn("Pigeon MPC: WALL value function = $V_wall")
 
 
