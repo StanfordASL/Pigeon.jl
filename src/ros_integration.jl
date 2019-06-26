@@ -204,19 +204,19 @@ function start_ROS_node(roadway_name="west_paddock", traj_mpc=X1CMPC)
     θ = roadway["angle"]
     w = roadway["lane_width"]
     x0, y0 = roadway["start_mid"]
-    x0 += wall_dist_scale*w * sin(θ)
-    y0 -= wall_dist_scale*w * cos(θ)
     a = -sin(θ)
     b = cos(θ)
-    c = sin(θ) * x0 - y0 * cos(θ)
+    x0 -= wall_dist_scale*w * a
+    y0 += wall_dist_scale*w * b
+    c = -(a * x0 + b * y0)
     X1CMPC.wall = SVector{4, Float32}([a, b, c, θ])
 
     x0, y0 = roadway["start_mid"]
-    x0 -= wall_dist_scale * sin(θ)
-    y0 += wall_dist_scale * cos(θ)
     a = sin(θ)
     b = -cos(θ)
-    c = -sin(θ) * x0 + y0 * cos(θ)
+    x0 -= wall_dist_scale * a
+    y0 += wall_dist_scale * b
+    c = -(a * x0 + b * y0)
     X1CMPC.left_wall = SVector{4, Float32}([a, b, c, θ])
 
     to_autobox_pub = Publisher{to_autobox}("/to_autobox", queue_size=10)

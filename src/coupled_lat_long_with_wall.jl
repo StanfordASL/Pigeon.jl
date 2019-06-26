@@ -102,7 +102,7 @@ end
 function compute_left_lateral_bound(state, wall)
     a, b, c, ϕ = wall
     ψ = pi/2 + state.ψ
-    a_bar, b_bar = sincos(-ψ)
+    a_bar, b_bar = sincos(-ψ)  # (-sinθ, cosθ)
     θ = ψ - ϕ
     
     if θ > 0 
