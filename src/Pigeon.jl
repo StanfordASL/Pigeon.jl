@@ -14,7 +14,8 @@ const MOI = MathOptInterface
 using Parametron
 using RobotOS
 using JLD2
-# using MAT
+using MAT
+using Rotations
 
 import StaticArrays: SUnitRange
 import DifferentialDynamicsModels: mod2piF, adiff
