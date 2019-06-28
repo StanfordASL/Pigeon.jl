@@ -184,45 +184,6 @@ function optimal_control(X::VehicleModel, relative_state::HJIRelativeState, ∇V
     BicycleControl2(δ_opt, Fx_opt)
 end
 
-# for car-wall relative dynamics
-function optimal_control(X::VehicleModel, relative_state::WALLRelativeState, ∇V::StaticVector{5}, uMode=:max; N=40, M=18)
-    BM, LP, CL = X.bicycle_model, X.longitudinal_params, X.control_limits
-    L, a, b, h, m, μ, Cαf, Cαr, G, Izz = BM.L, BM.a, BM.b, BM.h, BM.m, BM.μ, BM.Cαf, BM.Cαr, BM.G, BM.Izz
-    δ_max, Fx_max, Fx_min = CL.δ_max, CL.Fx_max, CL.Fx_min
-    fake_qR = SVector(0., 0., 0., relative_state.Ux, relative_state.Uy, relative_state.r)    # sufficient for lateral_tire_forces
-
-    sgn = (uMode == :max ? 1 : -1)
-    V_opt  = -sgn*Inf
-    Fx_opt = 0.0
-    δ_opt  = 0.0
-    for m in 0:(M-1)
-        frac_δ = m/(M-1)
-        δ = frac_δ * δ_max - (1 - frac_δ) * δ_max
-        for n in 0:(N-1)
-            frac = n/(N-1)
-            Fx = frac*Fx_max + (1 - frac)*Fx_min
-            uR = BicycleControl(δ, longitudinal_tire_forces(LP, Fx)...)
-            Fyf, Fyr = lateral_tire_forces(BM, fake_qR, uR)
-            # Fxf coefficient
-            Fxf_coeff = ∇V[3] * cos(δ) / m + ∇V[4] * sin(δ) / m + ∇V[5] * a * sin(δ) / Izz
-            # Fxr coefficient
-            Fxr_coeff = ∇V[3] / m
-            # Fyf coefficient
-            Fyf_coeff = -∇V[3] * sin(δ) / m + ∇V[4] * cos(δ) / m + ∇V[5] * a * cos(δ) / Izz
-            # Fyr coefficient
-            Fyr_coeff = ∇V[4] / m - ∇V[5] * b / Izz 
-
-            V = Fxf_coeff * uR.Fxf + Fyf_coeff * uR.Fxr + Fyf_coeff * Fyf + Fyr_coeff * Fyr
-
-            if (sgn > 0 && V > V_opt) || (sgn < 0 && V < V_opt)
-                Fx_opt = Fx
-                δ_opt = δ
-                V_opt  = V
-            end
-        end
-    end
-    BicycleControl2(δ_opt, Fx_opt)
-end
 
 # for car-car relative dynamics
 function compute_reachability_constraint(X::VehicleModel, cache::HJICache, relative_state::HJIRelativeState, ϵ,
