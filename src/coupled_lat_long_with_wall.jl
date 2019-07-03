@@ -450,6 +450,9 @@ function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
     QPP.M_WALL() .= (M .* u_normalization)'
     QPP.b_WALL() .= b
 
+    # lateral error bound constraint
+    QPP.W_erbd() .= control_params.W_erbd .* ones(N_short + N_long)
+
     for t in N_short+1:N_short+N_long
         FOHt = linearize(dynamics, qs[t], RampControl(dt[t], [us[t]; ps[t]], [us[t+1]; ps[t+1]]), keep_control_dims=SVector(1,2))
         QPP.A[t]() .= FOHt.A
