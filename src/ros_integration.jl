@@ -58,7 +58,7 @@ const to_autobox_msg = to_autobox()
 
 ### /from_autobox
 const use_HJI_policy = fill(false)
-function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, wall, mpc_time_pub, path_mpc=X1DMPC, traj_mpc=X1CMPC)
+function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, mpc_time_pub, path_mpc=X1DMPC, traj_mpc=X1CMPC)
     mpc = (tracking_mode[] == :path ? path_mpc : traj_mpc)
     mpc.current_state = BicycleState(msg.E_m, msg.N_m, msg.psi_rad, msg.ux_mps, msg.uy_mps, msg.r_radps)
     # mpc.current_control = BicycleControl(msg.delta_rad, msg.fxf_N, msg.fxr_N)
@@ -70,13 +70,22 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
     V_car, ∇V_car = mpc.HJI_cache[relative_state_car]
     show_loginfo[] && RobotOS.logwarn("Pigeon MPC: HJI value function = $V_car")
 
-    relative_state_wall = WALLRelativeState(mpc.current_state, wall)   
-    V_wall, ∇V_wall = mpc.WALL_cache[relative_state_wall]  
-    show_loginfo[] && RobotOS.logwarn("Pigeon MPC: WALL value function = $V_wall")
+    relative_state_right_wall = WALLRelativeState(mpc.current_state, traj_mpc.right_wall)
+    V_right_wall, ∇V_right_wall = mpc.WALL_cache[relative_state_right_wall]  
+    show_loginfo[] && RobotOS.logwarn("Pigeon MPC: Right WALL value function = $V_right_wall")
+
+    # relative_state_left_wall = WALLRelativeState(mpc.current_state, traj_mpc.left_wall)
+    # relative_state_left_wall.Δψ *= -1
+    # V_left_wall, ∇V_left_wall = mpc.WALL_cache[relative_state_left_wall]  
+    # show_loginfo[] && RobotOS.logwarn("Pigeon MPC: Left WALL value function = $V_left_wall")
 
 
     # if we are not caring about the wall, the value is always from the other car
     if (traj_mpc.control_params.W_WALL != 0.0)
+        V_wall = V_right_wall #<= V_left_wall ? V_right_wall : V_left_wall
+        ∇V_wall = ∇V_right_wall #<= V_left_wall ? ∇V_right_wall : ∇V_left_wall
+        relative_state_wall = V_right_wall #<= V_left_wall ? relative_state_right_wall : relative_state_left_wall
+
         V = V_car <= V_wall ? V_car : V_wall
         ∇V = V_car <= V_wall ? ∇V_car : ∇V_wall
         relative_state  = V_car <= V_wall ? relative_state_car : relative_state_wall
@@ -199,23 +208,24 @@ end
 function start_ROS_node(roadway_name="west_paddock", traj_mpc=X1CMPC)
     init_node("pigeon", anonymous=false)
     other_car = RobotOS.get_param("human", "/xbox_car")
+    wall_dist_scale = RobotOS.get_param("wall_boundary_distance", 1.6)
     roadway = RobotOS.get_param("roadway")
-    wall_dist_scale = 1.6
     θ = roadway["angle"]
     w = roadway["lane_width"]
+
     x0, y0 = roadway["start_mid"]
     a = -sin(θ)
     b = cos(θ)
-    x0 -= wall_dist_scale*w * a
-    y0 += wall_dist_scale*w * b
+    x0 -= wall_dist_scale*w * a  # +sinθ -cosθ
+    y0 -= wall_dist_scale*w * b
     c = -(a * x0 + b * y0)
-    X1CMPC.wall = SVector{4, Float32}([a, b, c, θ])
+    X1CMPC.right_wall = SVector{4, Float32}([a, b, c, θ])
 
     x0, y0 = roadway["start_mid"]
     a = sin(θ)
     b = -cos(θ)
-    x0 -= wall_dist_scale * a
-    y0 += wall_dist_scale * b
+    x0 -= wall_dist_scale*w * a
+    y0 -= wall_dist_scale*w * b
     c = -(a * x0 + b * y0)
     X1CMPC.left_wall = SVector{4, Float32}([a, b, c, θ])
 
@@ -227,7 +237,7 @@ function start_ROS_node(roadway_name="west_paddock", traj_mpc=X1CMPC)
     mpc_time_pub = Publisher{Point}("/mpc_time", queue_size=1)
     Subscriber{path}("/des_path", nominal_trajectory_callback, queue_size=1)
     Subscriber{VehicleTrajectory}("/des_traj", nominal_trajectory_callback, queue_size=1)
-    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, X1CMPC.wall, mpc_time_pub), queue_size=1)
+    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, mpc_time_pub), queue_size=1)
     Subscriber{XYThV}("$(other_car)/xythv", other_car_callback, queue_size=1)    # TODO: abstract with a republisher
     @spawn spin()
 end

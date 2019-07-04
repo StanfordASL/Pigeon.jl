@@ -83,7 +83,7 @@ const X1_params = X1()
 
 function compute_right_lateral_bound(state, wall)
     a, b, c, ϕ = wall
-    ψ = pi/2 + state.ψ
+    ψ = pi/2 + state.ψ # from_autobox is measured from north
     a_bar, b_bar = sincos(-ψ)
     θ = ψ - ϕ
     
@@ -373,8 +373,9 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
         e_lbdt  = push!(e_lbds,  Parameter([100.0], m))[end]
         σ_erbdt = [σ_erbd[t]]
         @constraint(m, [q[6,t+1]] - e_rbdt >= -σ_erbdt)
-        # @constraint(m, [q[6,t+1]] >= e_rbdt + σ_erbdt)
-        @constraint(m, [q[6,t+1]] <= e_lbdt)
+        # @constraint(m, [q[6,t+1]] >= e_rbdt)
+        @constraint(m, e_lbdt - [q[6,t+1]] >= -σ_erbdt)
+        # @constraint(m, [q[6,t+1]] <= e_lbdt)
 
         @constraint(m, [δ[t+1]] <= δ_maxt)
         @constraint(m, [δ[t+1]] >= δ_mint)
@@ -443,8 +444,8 @@ function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
     QPP.b_HJI() .= b
 
     # HJI constraint for wall dynamics
-    relative_state = WALLRelativeState(mpc.current_state, mpc.wall)
-    M, b = compute_reachability_constraint(mpc.dynamics, mpc.WALL_cache, relative_state, mpc.HJI_ϵ, mpc.wall, BicycleControl2(mpc.current_control))
+    relative_state = WALLRelativeState(mpc.current_state, mpc.right_wall)
+    M, b = compute_reachability_constraint(mpc.dynamics, mpc.WALL_cache, relative_state, mpc.HJI_ϵ, mpc.right_wall, BicycleControl2(mpc.current_control))
     # QPP.W_HJI() .= control_params.W_HJI .* ones(N_short)
     QPP.W_WALL() .= control_params.W_WALL .* [ones(control_params.N_HJI); zeros(N_short - control_params.N_HJI)]
     QPP.M_WALL() .= (M .* u_normalization)'
@@ -475,7 +476,7 @@ function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
         QPP.Δδ_max[t]() .=  δ̇_max*dt[t] / u_normalization[1]
         # lateral bound constraints
         trajt = traj(time_steps.ts[t+1])
-        QPP.e_rbds[t]() .= compute_right_lateral_bound(trajt, mpc.wall)
+        QPP.e_rbds[t]() .= compute_right_lateral_bound(trajt, mpc.right_wall)
         QPP.e_lbds[t]() .= compute_left_lateral_bound(trajt, mpc.left_wall)
     end
 end

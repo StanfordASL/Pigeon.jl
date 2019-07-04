@@ -56,7 +56,7 @@ mutable struct TrajectoryTrackingMPC{T,C,Q,U,P,QPP,QPV}
     HJI_cache::HJICache
     HJI_ϵ::T
 
-    wall::Vector{Float32}
+    right_wall::Vector{Float32}
     left_wall::Vector{Float32}
     WALL_cache::WALLCache
 end
