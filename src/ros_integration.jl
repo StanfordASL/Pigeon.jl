@@ -1,10 +1,10 @@
-@rosimport std_msgs.msg: ColorRGBA, Header
+@rosimport std_msgs.msg: ColorRGBA, Header, Float32MultiArray
 @rosimport geometry_msgs.msg: Point, TransformStamped, Transform
 @rosimport visualization_msgs.msg: Marker
 @rosimport safe_traffic_weaving.msg: VehicleTrajectory, path, XYThV
 @rosimport auto_messages.msg: from_autobox, to_autobox
 rostypegen(@__MODULE__)
-import .std_msgs.msg: ColorRGBA, Header
+import .std_msgs.msg: ColorRGBA, Header, Float32MultiArray
 import .geometry_msgs.msg: Point, TransformStamped, Transform
 import .visualization_msgs.msg: Marker
 import .safe_traffic_weaving.msg: VehicleTrajectory, path, XYThV
@@ -58,7 +58,12 @@ const to_autobox_msg = to_autobox()
 
 ### /from_autobox
 const use_HJI_policy = fill(false)
-function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, mpc_time_pub, path_mpc=X1DMPC, traj_mpc=X1CMPC)
+
+### lateral_bounds
+const lateral_bounds = Float32MultiArray()
+
+
+function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, lateral_bounds_publisher, path_mpc=X1DMPC, traj_mpc=X1CMPC)
     mpc = (tracking_mode[] == :path ? path_mpc : traj_mpc)
     mpc.current_state = BicycleState(msg.E_m, msg.N_m, msg.psi_rad, msg.ux_mps, msg.uy_mps, msg.r_radps)
     # mpc.current_control = BicycleControl(msg.delta_rad, msg.fxf_N, msg.fxr_N)
@@ -148,14 +153,16 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
             RobotOS.logwarn("Pigeon MPC Error: $err\n$(stacktrace(catch_backtrace()))")
         end
     end
-    mpc_conv_time.x = t_elapsed
-    publish(mpc_time_pub, mpc_conv_time)
     if t_elapsed > 0.01
         RobotOS.logwarn("Pigeon MPC: OSQP took $(1000*t_elapsed) ms at heartbeat $(mpc.heartbeat)")
     else
         show_loginfo[] && RobotOS.loginfo("Pigeon MPC: OSQP took $(1000*t_elapsed) ms at heartbeat $(mpc.heartbeat)")
     end
 
+    # left_lateral_bounds = [mpc.parameters.e_lbds[i]()[1] for i in 1:length(mpc.parameters.e_lbds)]
+    # right_lateral_bounds = [mpc.parameters.e_rbds[i]()[1] for i in 1:length(mpc.parameters.e_rbds)]
+    # lateral_bounds.data = Float32[mpc.parameters.e_lbds[1]()[1], mpc.parameters.e_lbds[2]()[1]]
+    # publish(lateral_bounds_publisher, lateral_bounds)
 
     # show_loginfo[] && RobotOS.loginfo("Pigeon MPC: $(mpc.model.optimizer.results.info)")
     # show_loginfo[] && RobotOS.loginfo("deltas: $(value.(mpc.model, mpc.variables.δ))")
@@ -213,19 +220,16 @@ function start_ROS_node(roadway_name="west_paddock", traj_mpc=X1CMPC)
     θ = roadway["angle"]
     w = roadway["lane_width"]
 
-    x0, y0 = roadway["start_mid"]
+    x_mid, y_mid = roadway["start_mid"]
     a = -sin(θ)
     b = cos(θ)
-    x0 -= wall_dist_scale*w * a  # +sinθ -cosθ
-    y0 -= wall_dist_scale*w * b
+    x0 = x_mid - wall_dist_scale*w * a  # +sinθ -cosθ
+    y0 = y_mid - wall_dist_scale*w * b
     c = -(a * x0 + b * y0)
     X1CMPC.right_wall = SVector{4, Float32}([a, b, c, θ])
 
-    x0, y0 = roadway["start_mid"]
-    a = sin(θ)
-    b = -cos(θ)
-    x0 -= wall_dist_scale*w * a
-    y0 -= wall_dist_scale*w * b
+    x0 = x_mid + wall_dist_scale*w * a
+    y0 = y_mid + wall_dist_scale*w * b
     c = -(a * x0 + b * y0)
     X1CMPC.left_wall = SVector{4, Float32}([a, b, c, θ])
 
@@ -234,10 +238,10 @@ function start_ROS_node(roadway_name="west_paddock", traj_mpc=X1CMPC)
     HJI_contour_pub = Publisher{Marker}("/HJI_contour", queue_size=1)
     WALL_values_pub = Publisher{Marker}("/WALL_values", queue_size=1)
     WALL_contour_pub = Publisher{Marker}("/WALL_contour", queue_size=1)
-    mpc_time_pub = Publisher{Point}("/mpc_time", queue_size=1)
+    lateral_bounds_publisher = Publisher{Float32MultiArray}("/lateral_bounds", queue_size=1)
     Subscriber{path}("/des_path", nominal_trajectory_callback, queue_size=1)
     Subscriber{VehicleTrajectory}("/des_traj", nominal_trajectory_callback, queue_size=1)
-    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, mpc_time_pub), queue_size=1)
+    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, lateral_bounds_publisher), queue_size=1)
     Subscriber{XYThV}("$(other_car)/xythv", other_car_callback, queue_size=1)    # TODO: abstract with a republisher
     @spawn spin()
 end

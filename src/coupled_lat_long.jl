@@ -1,25 +1,38 @@
 struct CoupledControlParams{T}
-    V_min::T
-    V_max::T
+    # limits
+    V_min::T                    # minimum velocity
+    V_max::T                    # maximum velocity
 
-    k_V::T    # used only for initial seeding of linearization nodes
-    k_s::T
+    # gains on longitudinal controllers
+    k_V::T                      # gain on velocity tracking used only for initial seeding of linearization nodes
+    k_s::T                      # gain on time tracking
 
-    δ̇_max::T
+    δ̇_max::T                    # delta limits
 
-    Q_Δs::T
-    Q_Δψ::T
-    Q_e::T
-    W_β::T
-    W_r::T
-    W_HJI::T
-    N_HJI::Int
+    # state/error weights
+    Q_Δs::T                     # quadratic cost on Δs
+    Q_Δψ::T                     # quadratic cost on Δψ
+    Q_e::T                      # quadratic cost on lateral error
 
-    R_δ::T
-    R_Δδ::T
-    R_Fx::T
-    R_ΔFx::T
+    # slack variable weights
+    W_β::T                      # slack variable weight for stability envelope (1)
+    W_r::T                      # slack variable weight for stability envelope (2)
+    W_HJI::T                    # slack variable weight for HJI (relative car)
+    W_WALL::T                   # slack variable weight for HJI (wall)
+    W_erbd::T                   # slack variable weight for right lateral bound
+
+    # extra stuff
+    N_HJI::Int                  # number of time steps to apply the HJI constraint
+
+    # control and control rate weights
+    R_δ::T                      # quadratic cost on δ
+    R_Δδ::T                     # quadratic cost on Δδ
+    R_Fx::T                     # quadratic cost on Fx
+    R_ΔFx::T                    # quadratic cost on ΔFx
 end
+
+
+# instantiate the parameters
 function CoupledControlParams(;V_min=1.0,
                                V_max=15.0,
                                k_V=10/4/100,
@@ -31,14 +44,17 @@ function CoupledControlParams(;V_min=1.0,
                                W_β=50/(10*π/180),
                                W_r=50.0,
                                W_HJI=500.0,
+                               W_WALL=0.0,
+                               W_erbd=0.0,
                                N_HJI=3,
                                R_δ=0.0,
                                R_Δδ=0.1,
                                R_Fx=0.0,
                                R_ΔFx=0.5)
-    CoupledControlParams(V_min, V_max, k_V, k_s, δ̇_max, Q_Δs, Q_Δψ, Q_e, W_β, W_r, W_HJI, N_HJI, R_δ, R_Δδ, R_Fx, R_ΔFx)
+    CoupledControlParams(V_min, V_max, k_V, k_s, δ̇_max, Q_Δs, Q_Δψ, Q_e, W_β, W_r, W_HJI, W_WALL, W_erbd,N_HJI, R_δ, R_Δδ, R_Fx, R_ΔFx)
 end
 
+# constructs coupled (lat + long) trajectory tracking MPC
 function CoupledTrajectoryTrackingMPC(vehicle::Dict{Symbol,T}, trajectory::TrajectoryTube{T}; control_params=CoupledControlParams(),
                                       N_short=10, N_long=20, dt_short=T(0.01), dt_long=T(0.2), use_correction_step=true) where {T}
     dynamics = VehicleModel(vehicle)
@@ -47,17 +63,352 @@ function CoupledTrajectoryTrackingMPC(vehicle::Dict{Symbol,T}, trajectory::Traje
     time_steps = MPCTimeSteps(N_short, N_long, dt_short, dt_long, use_correction_step)
 
     N = 1 + N_short + N_long
-    qs = rand(TrackingBicycleState{T}, N)    # not zeros so that construct_lateral_tracking_QP below works
+    qs = rand(TrackingBicycleState{T}, N)    # not zeros so that construct_coupled_tracking_QP below works
     us = rand(BicycleControl2{T}, N)
     ps = zeros(TrackingBicycleParams{T}, N)
     tracking_dynamics = VehicleModel(vehicle, TrackingBicycleModel(vehicle))
+    # complete MPC problem (w/ linearisation, normalisation etc -- the full glory details)
     model, variables, parameters = construct_coupled_tracking_QP(tracking_dynamics, control_params, time_steps, qs, us, ps)
+
+    # see model_predictive_control.jl
     TrajectoryTrackingMPC(vehicle, trajectory, dynamics, control_params,
                           current_state, current_control, 0, NaN,
                           time_steps,
                           qs, us, ps,
                           tracking_dynamics, model, variables, parameters)
 end
+
+
+const X1_params = X1()
+
+function car_lateral_line_params(state, offset=[state.E, state.N])
+    b, a = sincos(state.ψ + pi/2)
+    c = -(a * offset[1] + b * offset[2])
+    
+    return (a,b,c)
+end
+
+function car_longitudinal_line_params(state, offset=[state.E, state.N])
+    a, b = sincos(-(state.ψ + pi/2))
+    c = -(a * offset[1] + b * offset[2])
+    return (a,b,c)
+end
+
+function traj_line_params(t1, t2, offset=[t1.E, t1.N])
+    ϕ_traj = atan(t2.N - t1.N, t2.E - t1.E)
+    a_traj, b_traj = sincos(-(ϕ_traj + pi/2))
+    c_traj = -(a_traj * offset[1] + b_traj * offset[2])
+    return (a_traj, b_traj, c_traj, ϕ_traj)
+end
+
+function intersection_two_lines(line1, line2)
+    AB = hcat([[line1[1], line1[2]], [line2[1], line2[2]]]...)'
+    C = -[line1[3], line2[3]]
+    xy = AB\C
+end
+
+function lateral_distance_to_line(state, line)
+    xy = intersection_two_lines(car_lateral_line_params(state), line)
+    a_car, b_car, c_car = car_longitudinal_line_params(state)
+    d = a_car * xy[1] + b_car * xy[2] + c_car
+    θ = state.ψ + pi/2 - line[4]
+    if θ > 0 
+        arm = X1_params[:b]
+    else
+        arm = X1_params[:a]
+    end
+    offset = abs(tan(θ)) * arm + 0.5 * X1_params[:w]
+    return d - sign(d) * offset 
+end
+
+function point_relevant(front_line, back_line, point)
+    (front_line[1] * point[1] + front_line[2] * point[2] + front_line[3] < 0) & (back_line[1] * point[1] + back_line[2] * point[2] + back_line[3] > 0)
+end
+
+function other_car_relevant(state, t1)
+    if t1 == nothing
+        return false
+    end
+    car_corners = box_car(state)
+    fl = car_corners[:,1]
+    rl = car_corners[:,2]
+    front_line = car_lateral_line_params(state, fl)
+    back_line = car_lateral_line_params(state, rl)
+    traj_car_corners = box_car(t1)
+    0 < sum(point_relevant(front_line, back_line, traj_car_corners[:,j]) for j in 1:4)
+end
+
+function other_car_on_right(state, t1)
+    if t1 == nothing
+        return false
+    end
+    sum(car_longitudinal_line_params(t1) .* [state.E, state.N, 1]) > 0
+end
+
+function other_car_on_left(state, t1)
+    if t1 == nothing
+        return false
+    end
+    sum(car_longitudinal_line_params(t1) .* [state.E, state.N, 1]) < 0
+end
+
+function other_car_inside_region(state, t1)
+    car_corners = box_car(state)
+    fl = car_corners[:,1]
+    rl = car_corners[:,2]
+    front_line = car_lateral_line_params(state, fl)
+    back_line = car_lateral_line_params(state, rl)
+    traj_car_corners = box_car(t1)
+    sum(point_relevant(front_line, back_line, traj_car_corners[:,j]) for j in 1:4) == 4
+end
+
+function other_car_lateral_distance(state, t1)
+    a_lateral, b_lateral, c_lateral = car_longitudinal_line_params(state)
+    traj_car = box_car(t1)
+    minimum([(state.E - traj_car[1,j]) * a_lateral + (state.N - traj_car[2,j]) * b_lateral for j in 1:4]) - X1_params[:w]/2
+end
+
+function compute_right_lateral_bound(state, t1, wall)
+    wall_dist = lateral_distance_to_line(state, wall)
+    traj_dist = wall_dist
+    if other_car_relevant(state, t1) & other_car_on_right(state, t1)
+        traj_dist = -5.0 # other_car_right_lateral_distance(state, t1)
+    end
+    max(wall_dist, traj_dist)
+end
+
+function compute_left_lateral_bound(state, t1, wall)
+    wall_dist = lateral_distance_to_line(state, wall)
+    traj_dist = wall_dist
+    if other_car_relevant(state, t1) & other_car_on_left(state, t1)
+        traj_dist = 5.0 # other_car_left_lateral_distance(state, t1)
+    end
+    min(wall_dist, traj_dist)
+end
+
+function box_car(state)
+    xy = [state.E, state.N]
+    a, b, c = car_lateral_line_params(state)
+    forward = [a, b]
+    a, b, c = car_longitudinal_line_params(state)
+    left = [a, b]
+    hcat([xy + forward * X1_params[:a] + left*X1_params[:w]/2, #fl
+          xy - forward * X1_params[:b] + left*X1_params[:w]/2, #rl 
+          xy - forward * X1_params[:b] - left*X1_params[:w]/2, #rr 
+          xy + forward * X1_params[:a] - left*X1_params[:w]/2, #fr
+          xy + forward * X1_params[:a] + left*X1_params[:w]/2]...) #fl
+end
+
+function in_first_quadrant(a)
+    0 <= a < pi/2
+end
+
+function in_fourth_quadrant(a)
+    3*pi/2 < a < 2*pi
+end
+
+
+function compute_relative_heading(a,b)
+    if in_first_quadrant(a) & in_fourth_quadrant(b)
+        return a - (b - 2*pi)
+    elseif in_first_quadrant(b) & in_fourth_quadrant(a)
+        return b - 2*pi  - a
+    else
+        return a - b
+    end
+end
+
+function other_car_left_lateral_distance(state, t1)
+    traj_car = box_car(t1)
+    car = box_car(state)
+    car_front_line = car_lateral_line_params(state, car[:,1])
+    car_back_line = car_lateral_line_params(state, car[:,2])
+    a_lateral, b_lateral, c_lateral = car_longitudinal_line_params(state)
+    dist = 0
+
+    relative_heading = compute_relative_heading((t1.ψ + 2*pi) % (2*pi), (state.ψ + 2*pi) % (2*pi))
+    # if traj_car inside region
+    # if other_car_inside_region(state, t1)
+    #     dist = minimum([abs((state.E - traj_car[1,j]) * a_lateral + (state.N - traj_car[2,j]) * b_lateral) for j in 1:4]) - X1_params[:w]/2
+
+    # # if traj_car partially in front of region
+    # else
+        if relative_heading > 0
+            # if rr relavant
+            if point_relevant(car_front_line, car_back_line, traj_car[:,3])
+                car_left_line = car_longitudinal_line_params(state, car[:,1])
+                # if in collision 
+                if sum(car_left_line .* [traj_car[1,3], traj_car[2,3], 1]) < 0
+                    dist = -sum(car_left_line .* [traj_car[1,3], traj_car[2,3], 1])
+                else
+                    dist = abs((state.E - traj_car[1,3]) * a_lateral + (state.N - traj_car[2,3]) * b_lateral) - X1_params[:w]/2
+                end
+            # elseif front two points are irrelevant
+            elseif !point_relevant(car_front_line, car_back_line, traj_car[:,3]) & !point_relevant(car_front_line, car_back_line, traj_car[:,4])
+                    traj_car_back_line = car_lateral_line_params(t1, traj_car[:,2])
+                    xy = intersection_two_lines(car_front_line, traj_car_back_line)
+                    # check if in collision
+                    if sum(traj_car_back_line .* [car[1,1], car[2,1], 1]) > 0
+                        dist = -sqrt(sum((xy - car[:,1]).^2))
+                    else
+                        dist = abs((state.E - xy[1]) * a_lateral + (state.N - xy[2]) * b_lateral) - X1_params[:w]/2
+                    end
+            else
+                traj_car_right_line = car_longitudinal_line_params(t1, traj_car[:,3])
+                xy = intersection_two_lines(car_back_line, traj_car_right_line)
+                if sum(traj_car_right_line .* [car[1,2], car[2,2], 1]) > 0
+                    dist = -sqrt(sum((xy - car[:,2]).^2))
+                else
+                    dist = abs((state.E - xy[1]) * a_lateral + (state.N - xy[2]) * b_lateral) - X1_params[:w]/2
+                end
+
+            end
+        else
+            if point_relevant(car_front_line, car_back_line, traj_car[:,4])
+                car_left_line = car_longitudinal_line_params(state, car[:,1])
+                if sum(car_left_line .* [traj_car[1,4], traj_car[2,4], 1]) < 0
+                    dist = -sum(car_left_line .* [traj_car[1,4], traj_car[2,4], 1])
+                else
+                    dist = abs((state.E - traj_car[1,4]) * a_lateral + (state.N - traj_car[2,4]) * b_lateral) - X1_params[:w]/2
+                end
+            # elseif front two points are irrelevant
+            elseif !point_relevant(car_front_line, car_back_line, traj_car[:,4]) & !point_relevant(car_front_line, car_back_line, traj_car[:,1])
+                    traj_car_right_line = car_longitudinal_line_params(t1, traj_car[:,3])
+                    xy = intersection_two_lines(car_front_line, traj_car_right_line)
+                    if sum(traj_car_right_line .* [car[1,1], car[2,1], 1]) > 0
+                        dist = -sqrt(sum((xy - car[:,1]).^2))
+                    else
+                        dist = abs((state.E - xy[1]) * a_lateral + (state.N - xy[2]) * b_lateral) - X1_params[:w]/2
+                    end
+            else
+                traj_car_front_line = car_lateral_line_params(t1, traj_car[:,1])
+                xy = intersection_two_lines(car_back_line, traj_car_front_line)
+                if sum(traj_car_front_line .* [car[1,2], car[2,2], 1]) < 0
+                    dist = -sqrt(sum((xy - car[:,2]).^2))
+                else
+                    dist = abs((state.E - xy[1]) * a_lateral + (state.N - xy[2]) * b_lateral) - X1_params[:w]/2
+                end
+
+            end
+        end
+    # end
+    return dist
+end
+
+
+
+function other_car_right_lateral_distance(state, t1)
+    traj_car = box_car(t1)
+    car = box_car(state)
+    car_front_line = car_lateral_line_params(state, car[:,1])
+    car_back_line = car_lateral_line_params(state, car[:,2])
+    a_lateral, b_lateral, c_lateral = car_longitudinal_line_params(state)
+    relative_heading = compute_relative_heading((t1.ψ + 2*pi) % (2*pi), (state.ψ + 2*pi) % (2*pi))
+
+    # if traj_car inside region
+    dist = 0
+    # if other_car_inside_region(state, t1)
+    #     dist = minimum([abs((state.E - traj_car[1,j]) * a_lateral + (state.N - traj_car[2,j]) * b_lateral) for j in 1:4]) - X1_params[:w]/2
+
+    # # if traj_car partially in front of region
+    # else
+        if relative_heading > 0
+            # if fl relavant
+            if point_relevant(car_front_line, car_back_line, traj_car[:,1])
+                car_right_line = car_longitudinal_line_params(state, car[:,4])
+                if sum(car_right_line .* [traj_car[1,1], traj_car[2,1], 1]) > 0
+                    dist = -sum(car_right_line .* [traj_car[1,1], traj_car[2,1], 1])
+                else
+                    dist = abs((state.E - traj_car[1,1]) * a_lateral + (state.N - traj_car[2,1]) * b_lateral) - X1_params[:w]/2
+                end
+            # elseif front two points are irrelevant
+            elseif !point_relevant(car_front_line, car_back_line, traj_car[:,1]) & !point_relevant(car_front_line, car_back_line, traj_car[:,4])
+                    traj_car_left_line = car_longitudinal_line_params(t1, traj_car[:,1])
+                    xy = intersection_two_lines(car_front_line, traj_car_left_line)
+                    if sum(traj_car_left_line .* [car[1,4], car[2,4], 1]) < 0
+                        dist = -sqrt(sum((xy - car[:,4]).^2))
+                    else
+                        dist = abs((state.E - xy[1]) * a_lateral + (state.N - xy[2]) * b_lateral) - X1_params[:w]/2
+                    end
+            else
+                traj_car_front_line = car_lateral_line_params(t1, traj_car[:,1])
+                xy = intersection_two_lines(car_back_line, traj_car_front_line)
+                if sum(traj_car_front_line .* [car[1,3], car[2,3], 1]) < 0
+                    dist = -sqrt(sum((xy - car[:,3]).^2))
+                else
+                    dist = abs((state.E - xy[1]) * a_lateral + (state.N - xy[2]) * b_lateral) - X1_params[:w]/2
+                end
+
+            end
+        else
+            if point_relevant(car_front_line, car_back_line, traj_car[:,2])
+                car_right_line = car_longitudinal_line_params(state, car[:,4])
+                if sum(car_right_line .* [traj_car[1,2], traj_car[2,2], 1]) > 0
+                    dist = -sum(car_right_line .* [traj_car[1,2], traj_car[2,2], 1])
+                else
+                    dist = abs((state.E - traj_car[1,2]) * a_lateral + (state.N - traj_car[2,2]) * b_lateral) - X1_params[:w]/2
+                end
+            # elseif front two points are irrelevant
+            elseif !point_relevant(car_front_line, car_back_line, traj_car[:,2]) & !point_relevant(car_front_line, car_back_line, traj_car[:,1])
+                    traj_car_back_line = car_lateral_line_params(t1, traj_car[:,2])
+                    xy = intersection_two_lines(car_front_line, traj_car_back_line)
+                    if sum(traj_car_back_line .* [car[1,4], car[2,4], 1]) > 0
+                        dist = -sqrt(sum((xy - car[:,4]).^2))
+                    else
+                        dist = abs((state.E - xy[1]) * a_lateral + (state.N - xy[2]) * b_lateral) - X1_params[:w]/2
+                    end
+            else
+                traj_car_left_line = car_longitudinal_line_params(t1, traj_car[:,1])
+                xy = intersection_two_lines(car_back_line, traj_car_left_line)
+                if sum(traj_car_left_line .* [car[1,3], car[2,3], 1]) < 0
+                    dist = -sqrt(sum((xy - car[:,3]).^2))
+                else
+                    dist = abs((state.E - xy[1]) * a_lateral + (state.N - xy[2]) * b_lateral) - X1_params[:w]/2
+                end
+
+
+            end
+        end
+    # end
+    return -dist
+end
+
+
+# function compute_right_lateral_bound(state, wall)
+#     a, b, c, ϕ = wall
+#     ψ = pi/2 + state.ψ # from_autobox is measured from north
+#     a_bar, b_bar = sincos(-ψ)
+#     θ = ψ - ϕ
+    
+#     if θ < 0 
+#         arm = X1_params[:a]
+#     else
+#         arm = X1_params[:b]
+#     end
+    
+#     offset = abs(tan(θ)) * arm + 0.5 * X1_params[:w]
+#     d = (a * state.E + b * state.N + c) / (a * a_bar + b * b_bar)
+#     return -(d - offset)
+
+# end
+
+# function compute_left_lateral_bound(state, wall)
+#     a, b, c, ϕ = wall
+#     ψ = pi/2 + state.ψ
+#     a_bar, b_bar = sincos(-ψ)  # (-sinθ, cosθ)
+#     θ = ψ - ϕ
+    
+#     if θ > 0 
+#         arm = X1_params[:a]
+#     else
+#         arm = X1_params[:b]
+#     end
+    
+#     offset = abs(tan(θ)) * arm + 0.5 * X1_params[:w]
+#     d = -(a * state.E + b * state.N + c) / (a * a_bar + b * b_bar)
+#     return (d - offset)
+
+# end
 
 function compute_linearization_nodes!(mpc::TrajectoryTrackingMPC{T},
                                       qs::Vector{TrackingBicycleState{T}},
@@ -141,6 +492,7 @@ function compute_linearization_nodes!(mpc::TrajectoryTrackingMPC{T},
     end
 end
 
+# information needed for the tracking MPC problem (weights + linear dynamics + stability envelope etc)
 struct TrackingQPParams{T}
     Q_Δs  ::Parameter{Diagonal{T,Vector{T}},typeof(identity),true}
     Q_Δψ  ::Parameter{Diagonal{T,Vector{T}},typeof(identity),true}
@@ -152,10 +504,14 @@ struct TrackingQPParams{T}
     W_β   ::Parameter{Vector{T},typeof(identity),true}
     W_r   ::Parameter{Vector{T},typeof(identity),true}
     W_HJI ::Parameter{Vector{T},typeof(identity),true}
+    W_WALL::Parameter{Vector{T},typeof(identity),true}
+    W_erbd::Parameter{Vector{T},typeof(identity),true}
     q_curr::Parameter{Vector{T},typeof(identity),true}
     u_curr::Parameter{Vector{T},typeof(identity),true}
     M_HJI ::Parameter{Matrix{T},typeof(identity),true}
     b_HJI ::Parameter{Matrix{T},typeof(identity),true}
+    M_WALL::Parameter{Matrix{T},typeof(identity),true}
+    b_WALL::Parameter{Matrix{T},typeof(identity),true}
     A     ::Vector{Parameter{Matrix{T},typeof(identity),true}}
     B     ::Vector{Parameter{Matrix{T},typeof(identity),true}}
     B0    ::Vector{Parameter{Matrix{T},typeof(identity),true}}
@@ -168,22 +524,29 @@ struct TrackingQPParams{T}
     Fx_max::Vector{Parameter{Vector{T},typeof(identity),true}}
     Δδ_min::Vector{Parameter{Vector{T},typeof(identity),true}}
     Δδ_max::Vector{Parameter{Vector{T},typeof(identity),true}}
+    # lateral bounds
+    e_rbds::Vector{Parameter{Vector{T},typeof(identity),true}}
+    e_lbds::Vector{Parameter{Vector{T},typeof(identity),true}}
 end
 
+# optimisation variables for tracking MPC problem
 struct TrackingQPVariables{T}
     q::Matrix{Variable}
     u::Matrix{Variable}
     σ::Matrix{Variable}
     σ_HJI::Vector{Variable}
+    σ_WALL::Vector{Variable}
+    σ_erbd::Vector{Variable}
     u_normalization::SVector{2,T}
+    # interpolation over the desired time steps
     q_interp::GriddedInterpolation{TrackingBicycleState{T},1,TrackingBicycleState{T},Gridded{Linear},Tuple{Vector{T}}}
     u_interp::GriddedInterpolation{BicycleControl2{T},1,BicycleControl2{T},Gridded{Linear},Tuple{Vector{T}}}
 end
-function TrackingQPVariables(q::Matrix{Variable}, u::Matrix{Variable}, σ::Matrix{Variable}, σ_HJI::Vector{Variable}, u_normalization::SVector{2,T}) where {T}
+function TrackingQPVariables(q::Matrix{Variable}, u::Matrix{Variable}, σ::Matrix{Variable}, σ_HJI::Vector{Variable}, σ_WALL::Vector{Variable}, σ_erbd::Vector{Variable}, u_normalization::SVector{2,T}) where {T}
     N = size(q, 2)
     q_interp = interpolate(T, TrackingBicycleState{T}, (T.(1:N),), zeros(TrackingBicycleState{T}, N), Gridded(Linear()))
     u_interp = interpolate(T, BicycleControl2{T}, (T.(1:N),), zeros(BicycleControl2{T}, N), Gridded(Linear()))
-    TrackingQPVariables(q, u, σ, σ_HJI, u_normalization, q_interp, u_interp)
+    TrackingQPVariables(q, u, σ, σ_HJI, σ_WALL, σ_erbd, u_normalization, q_interp, u_interp)
 end
 
 function update_interpolations!(variables::TrackingQPVariables, model::Model{T}, prev_ts) where {T}
@@ -201,6 +564,8 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
     optimizer = OSQPOptimizer()
     MOI.set!(optimizer, OSQPSettings.Verbose(), false)
     MOI.set!(optimizer, OSQPSettings.WarmStart(), true)
+
+    # m is the model used by the optimiser
     m = Model{T}(optimizer)
 
     Q_Δs   = Parameter(Diagonal(control_params.Q_Δs .* dt), m)
@@ -213,10 +578,14 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
     W_β    = Parameter(control_params.W_β .* dt, m)
     W_r    = Parameter(control_params.W_r .* dt, m)
     W_HJI  = Parameter(control_params.W_HJI .* ones(N_short), m)
+    W_WALL = Parameter(control_params.W_WALL .* ones(N_short), m)
+    W_erbd = Parameter(control_params.W_erbd .* ones(N_short+N_long), m)
     q_curr = Parameter(Array(qs[1]), m)
     u_curr = Parameter(Array(us[1] ./ u_normalization), m)
     M_HJI  = Parameter(zeros(T, 1, 2), m)
     b_HJI  = Parameter(ones(T, 1, N_short), m)
+    M_WALL = Parameter(zeros(T, 1, 2), m)
+    b_WALL = Parameter(ones(T, 1, N_short), m)
     A      = Parameter{Matrix{T},typeof(identity),true}[]
     B      = Parameter{Matrix{T},typeof(identity),true}[]
     B0     = Parameter{Matrix{T},typeof(identity),true}[]
@@ -229,11 +598,17 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
     Fx_max = Parameter{Vector{T},typeof(identity),true}[]
     Δδ_min = Parameter{Vector{T},typeof(identity),true}[]
     Δδ_max = Parameter{Vector{T},typeof(identity),true}[]
+    # lateral bounds
+    e_rbds = Parameter{Vector{T},typeof(identity),true}[]
+    e_lbds = Parameter{Vector{T},typeof(identity),true}[]
+
 
     q     = [Variable(m) for i in 1:6, t in 1:N_short+N_long+1]    # (Δs, Ux, Uy, r, Δψ, e)
     u     = [Variable(m) for i in 1:2, t in 1:N_short+N_long+1]    # (δ, Fx)
     σ     = [Variable(m) for i in 1:2, t in 1:N_short+N_long]
     σ_HJI = [Variable(m) for t in 1:N_short]
+    σ_WALL= [Variable(m) for t in 1:N_short]
+    σ_erbd= [Variable(m) for t in 1:N_short+N_long]  
     Δδ    = [Variable(m) for t in 1:N_short+N_long]
     ΔFx   = [Variable(m) for t in 1:N_short+N_long]
     δ     = u[1,:]
@@ -241,6 +616,8 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
     Ux    = q[2,:]
     @constraint(m, vec(σ) >= fill(T(0), 2*(N_short+N_long)))
     @constraint(m, σ_HJI  >= fill(T(0), N_short))
+    @constraint(m, σ_WALL  >= fill(T(0), N_short))
+    @constraint(m, σ_erbd  >= fill(T(0), N_short+N_long))
     @constraint(m, diff(δ) == Δδ)
     @constraint(m, diff(Fx) == ΔFx)
     @constraint(m, Ux >= fill(control_params.V_min, N_short+N_long+1))    # may need slacks
@@ -257,6 +634,7 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
         @constraint(m, At*q[:,t] + Bt*u[:,t] + ct == q[:,t+1])
     end
     @constraint(m, vec(M_HJI*u[:,1:N_short] + b_HJI) >= -σ_HJI)
+    @constraint(m, vec(M_WALL*u[:,1:N_short] + b_WALL) >= -σ_WALL)
 
     for t in N_short+1:N_short+N_long
         FOHt = linearize(dynamics, qs[t], RampControl(dt[t], [us[t]; ps[t]], [us[t+1]; ps[t+1]]), keep_control_dims=SVector(1,2))
@@ -283,12 +661,22 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
         Δδt  = [Δδ[t]]
         Δδ_mint = push!(Δδ_min, Parameter([-δ̇_max*dt[t] / u_normalization[1]], m))[end]
         Δδ_maxt = push!(Δδ_max, Parameter([ δ̇_max*dt[t] / u_normalization[1]], m))[end]
+        # lateral bounds
+        e_rbdt  = push!(e_rbds,  Parameter([-100.0], m))[end]
+        e_lbdt  = push!(e_lbds,  Parameter([100.0], m))[end]
+        σ_erbdt = [σ_erbd[t]]
+        @constraint(m, [q[6,t+1]] - e_rbdt >= -σ_erbdt)
+        # @constraint(m, [q[6,t+1]] >= e_rbdt)
+        @constraint(m, e_lbdt - [q[6,t+1]] >= -σ_erbdt)
+        # @constraint(m, [q[6,t+1]] <= e_lbdt)
+
         @constraint(m, [δ[t+1]] <= δ_maxt)
         @constraint(m, [δ[t+1]] >= δ_mint)
         @constraint(m, [Fx[t+1]] <= Fx_maxt)
         @constraint(m, Ht*Uy_r - Gt <= σt)
         @constraint(m, Δδt <= Δδ_maxt)
         @constraint(m, Δδt >= Δδ_mint)
+
     end
 
     Δs   = q[1,2:end]
@@ -305,15 +693,16 @@ function construct_coupled_tracking_QP(dynamics::VehicleModel{T}, control_params
                        transpose(Δδ)*R_Δδ*Δδ +
                        transpose(Fx⁺)*R_Fx*Fx⁺ +
                        transpose(ΔFx)*R_ΔFx*ΔFx +
-                       W_β⋅σ1 + W_r⋅σ2 + W_HJI⋅σ_HJI
+                       W_β⋅σ1 + W_r⋅σ2 + W_HJI⋅σ_HJI + W_WALL⋅σ_WALL + W_erbd⋅σ_erbd
     @objective(m, Minimize, obj)
-    m, TrackingQPVariables(q, u, σ, σ_HJI, u_normalization), TrackingQPParams(Q_Δs, Q_Δψ, Q_e, R_δ, R_Δδ, R_Fx, R_ΔFx, W_β, W_r, W_HJI,
-                                                                              q_curr, u_curr, M_HJI, b_HJI, A, B, B0, Bf, c, H, G,
-                                                                              δ_min, δ_max, Fx_max, Δδ_min, Δδ_max)
+    m, TrackingQPVariables(q, u, σ, σ_HJI, σ_WALL, σ_erbd, u_normalization), TrackingQPParams(Q_Δs, Q_Δψ, Q_e, R_δ, R_Δδ, R_Fx, R_ΔFx, W_β, W_r, W_HJI, W_WALL, W_erbd,
+                                                                              q_curr, u_curr, M_HJI, b_HJI, M_WALL, b_WALL, A, B, B0, Bf, c, H, G,
+                                                                              δ_min, δ_max, Fx_max, Δδ_min, Δδ_max, e_rbds, e_lbds)
 end
 
 function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
     dynamics = mpc.tracking_dynamics
+    traj = mpc.trajectory
     control_params  = mpc.control_params
     time_steps = mpc.time_steps
     N_short, N_long, dt = time_steps.N_short, time_steps.N_long, time_steps.dt
@@ -338,12 +727,26 @@ function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
         QPP.B[t]() .= (ZOHt.B .* u_normalization')
         QPP.c[t]() .= ZOHt.c
     end
+
+    # HJI constraint for relative car dynamics
     relative_state = HJIRelativeState(mpc.current_state, mpc.other_car_state)
     M, b = compute_reachability_constraint(mpc.dynamics, mpc.HJI_cache, relative_state, mpc.HJI_ϵ, BicycleControl2(mpc.current_control))
     # QPP.W_HJI() .= control_params.W_HJI .* ones(N_short)
     QPP.W_HJI() .= control_params.W_HJI .* [ones(control_params.N_HJI); zeros(N_short - control_params.N_HJI)]
     QPP.M_HJI() .= (M .* u_normalization)'
     QPP.b_HJI() .= b
+
+    # HJI constraint for wall dynamics
+    relative_state = WALLRelativeState(mpc.current_state, mpc.right_wall)
+    M, b = compute_reachability_constraint(mpc.dynamics, mpc.WALL_cache, relative_state, mpc.HJI_ϵ, mpc.right_wall, BicycleControl2(mpc.current_control))
+    # QPP.W_HJI() .= control_params.W_HJI .* ones(N_short)
+    QPP.W_WALL() .= control_params.W_WALL .* [ones(control_params.N_HJI); zeros(N_short - control_params.N_HJI)]
+    QPP.M_WALL() .= (M .* u_normalization)'
+    QPP.b_WALL() .= b
+
+    # lateral error bound constraint
+    QPP.W_erbd() .= control_params.W_erbd .* [0.95^i for i in 1:(N_short + N_long)]#ones(N_short + N_long)
+
     for t in N_short+1:N_short+N_long
         FOHt = linearize(dynamics, qs[t], RampControl(dt[t], [us[t]; ps[t]], [us[t+1]; ps[t+1]]), keep_control_dims=SVector(1,2))
         QPP.A[t]() .= FOHt.A
@@ -353,6 +756,7 @@ function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
     end
     δ_max, δ̇_max   = dynamics.control_limits.δ_max, control_params.δ̇_max
     Fx_max, Px_max = dynamics.control_limits.Fx_max, dynamics.control_limits.Px_max
+
     for t in 1:N_short+N_long
         Uxt = qs[t+1].Ux
         Fxft, Fxrt = longitudinal_tire_forces(dynamics.longitudinal_params, us[t+1].Fx)
@@ -364,6 +768,34 @@ function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
         QPP.Fx_max[t]() .= min(Px_max/Uxt, Fx_max) / u_normalization[2]
         QPP.Δδ_min[t]() .= -δ̇_max*dt[t] / u_normalization[1]
         QPP.Δδ_max[t]() .=  δ̇_max*dt[t] / u_normalization[1]
+        # lateral bound constraints
+        trajt = traj(time_steps.ts[t+1])
+
+        other_car_current_state = mpc.other_car_state
+        other_car_projected_state = nothing
+        if control_params.W_HJI == 0.0
+            dt = time_steps.ts[t] - time_steps.ts[1]
+            other_car_projected_state = SimpleCarState(other_car_current_state.E + other_car_current_state.V * cos(other_car_current_state.ψ + pi/2) * dt,
+                                                       other_car_current_state.N + other_car_current_state.V * sin(other_car_current_state.ψ + pi/2) * dt,
+                                                       other_car_current_state.ψ,
+                                                       other_car_current_state.V)
+        end
+        if (sum(mpc.right_wall .== 0.0) == 4) & (sum(mpc.left_wall .== 0.0) == 4)
+            QPP.e_rbds[t]() .= -5.0
+            QPP.e_lbds[t]() .= 5.0
+        else
+            left_bd = compute_left_lateral_bound(trajt, other_car_projected_state, mpc.left_wall)
+            right_bd = compute_right_lateral_bound(trajt, other_car_projected_state, mpc.right_wall)
+            QPP.e_rbds[t]() .= right_bd
+            QPP.e_lbds[t]() .= left_bd
+            if t == 1
+                println(left_bd, right_bd)
+            end
+            # println(left_bd)
+        end
+
+            # QPP.e_rbds[t]() .= -5.0
+        # QPP.e_lbds[t]() .= 5.0
     end
 end
 
