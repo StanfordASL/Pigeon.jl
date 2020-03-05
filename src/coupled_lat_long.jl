@@ -126,7 +126,7 @@ function point_relevant(front_line, back_line, point)
 end
 
 function other_car_relevant(state, t1)
-    if t1 == nothing
+    if (t1.E == 0.0) & (t1.N == 0.0) && (t1.ψ == 0.0) & (t1.V == 0.0)
         return false
     end
     car_corners = box_car(state)
@@ -139,14 +139,14 @@ function other_car_relevant(state, t1)
 end
 
 function other_car_on_right(state, t1)
-    if t1 == nothing
+    if (t1.E == 0.0) & (t1.N == 0.0) && (t1.ψ == 0.0) & (t1.V == 0.0)
         return false
     end
     sum(car_longitudinal_line_params(t1) .* [state.E, state.N, 1]) > 0
 end
 
 function other_car_on_left(state, t1)
-    if t1 == nothing
+    if (t1.E == 0.0) & (t1.N == 0.0) && (t1.ψ == 0.0) & (t1.V == 0.0)
         return false
     end
     sum(car_longitudinal_line_params(t1) .* [state.E, state.N, 1]) < 0
@@ -172,7 +172,7 @@ function compute_right_lateral_bound(state, t1, wall)
     wall_dist = lateral_distance_to_line(state, wall)
     traj_dist = wall_dist
     if other_car_relevant(state, t1) & other_car_on_right(state, t1)
-        traj_dist = -5.0 # other_car_right_lateral_distance(state, t1)
+        traj_dist = other_car_right_lateral_distance(state, t1)
     end
     max(wall_dist, traj_dist)
 end
@@ -181,7 +181,7 @@ function compute_left_lateral_bound(state, t1, wall)
     wall_dist = lateral_distance_to_line(state, wall)
     traj_dist = wall_dist
     if other_car_relevant(state, t1) & other_car_on_left(state, t1)
-        traj_dist = 5.0 # other_car_left_lateral_distance(state, t1)
+        traj_dist = other_car_left_lateral_distance(state, t1)
     end
     min(wall_dist, traj_dist)
 end
@@ -212,7 +212,7 @@ function compute_relative_heading(a,b)
     if in_first_quadrant(a) & in_fourth_quadrant(b)
         return a - (b - 2*pi)
     elseif in_first_quadrant(b) & in_fourth_quadrant(a)
-        return b - 2*pi  - a
+        return -(2*pi - a + b)
     else
         return a - b
     end
@@ -239,7 +239,7 @@ function other_car_left_lateral_distance(state, t1)
                 car_left_line = car_longitudinal_line_params(state, car[:,1])
                 # if in collision 
                 if sum(car_left_line .* [traj_car[1,3], traj_car[2,3], 1]) < 0
-                    dist = -sum(car_left_line .* [traj_car[1,3], traj_car[2,3], 1])
+                    dist = sum(car_left_line .* [traj_car[1,3], traj_car[2,3], 1]) # already negative
                 else
                     dist = abs((state.E - traj_car[1,3]) * a_lateral + (state.N - traj_car[2,3]) * b_lateral) - X1_params[:w]/2
                 end
@@ -267,7 +267,7 @@ function other_car_left_lateral_distance(state, t1)
             if point_relevant(car_front_line, car_back_line, traj_car[:,4])
                 car_left_line = car_longitudinal_line_params(state, car[:,1])
                 if sum(car_left_line .* [traj_car[1,4], traj_car[2,4], 1]) < 0
-                    dist = -sum(car_left_line .* [traj_car[1,4], traj_car[2,4], 1])
+                    dist = sum(car_left_line .* [traj_car[1,4], traj_car[2,4], 1]) # already negative
                 else
                     dist = abs((state.E - traj_car[1,4]) * a_lateral + (state.N - traj_car[2,4]) * b_lateral) - X1_params[:w]/2
                 end
@@ -771,27 +771,34 @@ function update_QP!(mpc::TrajectoryTrackingMPC, QPP::TrackingQPParams)
         # lateral bound constraints
         trajt = traj(time_steps.ts[t+1])
 
-        other_car_current_state = mpc.other_car_state
-        other_car_projected_state = nothing
+        # other_car_current_state = mpc.other_car_state
         if control_params.W_HJI == 0.0
-            dt = time_steps.ts[t] - time_steps.ts[1]
-            other_car_projected_state = SimpleCarState(other_car_current_state.E + other_car_current_state.V * cos(other_car_current_state.ψ + pi/2) * dt,
-                                                       other_car_current_state.N + other_car_current_state.V * sin(other_car_current_state.ψ + pi/2) * dt,
-                                                       other_car_current_state.ψ,
-                                                       other_car_current_state.V)
+            Δt = time_steps.ts[t] - time_steps.ts[1]
+            yaw = mpc.other_car_state.ψ + pi/2
+            mpc.projected_other_car_state = SimpleCarState(mpc.other_car_state.E + mpc.other_car_state.V * cos(yaw) * Δt, 
+                                                           mpc.other_car_state.N + mpc.other_car_state.V * sin(yaw) * Δt, 
+                                                           mpc.other_car_state.ψ, mpc.other_car_state.V)
+        else
+            mpc.projected_other_car_state = zeros(SimpleCarState{Float64})
         end
+
+
         if (sum(mpc.right_wall .== 0.0) == 4) & (sum(mpc.left_wall .== 0.0) == 4)
             QPP.e_rbds[t]() .= -5.0
             QPP.e_lbds[t]() .= 5.0
         else
-            left_bd = compute_left_lateral_bound(trajt, other_car_projected_state, mpc.left_wall)
-            right_bd = compute_right_lateral_bound(trajt, other_car_projected_state, mpc.right_wall)
-            QPP.e_rbds[t]() .= right_bd
-            QPP.e_lbds[t]() .= left_bd
-            if t == 1
-                println(left_bd, right_bd)
+          
+            left_bd = compute_left_lateral_bound(trajt, mpc.projected_other_car_state, mpc.left_wall)
+            right_bd = compute_right_lateral_bound(trajt, mpc.projected_other_car_state, mpc.right_wall)
+            if left_bd < right_bd
+                QPP.e_rbds[t]() .= left_bd
+                QPP.e_lbds[t]() .= right_bd
+            else
+                QPP.e_rbds[t]() .= right_bd
+                QPP.e_lbds[t]() .= left_bd
             end
-            # println(left_bd)
+  
+            # println(left_bd, right_bd)
         end
 
             # QPP.e_rbds[t]() .= -5.0
