@@ -34,24 +34,29 @@ TrajectoryTube(p::VehicleTrajectory) = TrajectoryTube{Float64}(
 ### DEBUG
 const show_loginfo = fill(false)
 
-### HJI visualization
-include("rviz.jl")
-
 ### /des_path and /des_traj
 const latest_trajectory = fill(straight_trajectory(30., 5.))
 const tracking_mode = fill(:path)
-function nominal_trajectory_callback(msg::path, mpc=X1DMPC)                 # /des_traj
-    latest_trajectory[] = TrajectoryTube(msg)
-    tracking_mode[] = :path
-    mpc.time_offset = NaN
-    mpc.solved = false
-end
-function nominal_trajectory_callback(msg::VehicleTrajectory, mpc=X1CMPC)    # /des_path
+const traj_msg = Array{VehicleTrajectory}(undef)
+const from_autobox_msg = Array{from_autobox}(undef)
+
+function nominal_trajectory_callback_coupled(msg, X1CMPC)    # /des_traj
+    traj_msg[] = msg
+    mpc = X1CMPC
     latest_trajectory[] = TrajectoryTube(msg)
     tracking_mode[] = :traj
     mpc.time_offset = convert(Float64, msg.header.stamp)
     mpc.solved = false
 end
+
+function nominal_trajectory_callback_decoupled(msg::path, X1DMPC::TrajectoryTrackingMPC)                 # /des_path
+    mpc = X1DMPC
+    latest_trajectory[] = TrajectoryTube(msg)
+    tracking_mode[] = :path
+    mpc.time_offset = NaN
+    mpc.solved = false
+end
+
 
 ### /to_autobox
 const to_autobox_msg = to_autobox()
@@ -59,70 +64,21 @@ const to_autobox_msg = to_autobox()
 ### /from_autobox
 const use_HJI_policy = fill(false)
 
-### lateral_bounds
-const lateral_bounds = Float32MultiArray()
 
-
-function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, lateral_bounds_publisher, path_mpc=X1DMPC, traj_mpc=X1CMPC)
-    mpc = (tracking_mode[] == :path ? path_mpc : traj_mpc)
+function from_autobox_callback(msg::from_autobox, to_autobox_pub::Publisher{to_autobox}, X1DMPC::TrajectoryTrackingMPC, X1CMPC::TrajectoryTrackingMPC)
+    from_autobox_msg[] = msg
+    mpc = (tracking_mode[] == :path ? X1DMPC : X1CMPC)
     mpc.current_state = BicycleState(msg.E_m, msg.N_m, msg.psi_rad, msg.ux_mps, msg.uy_mps, msg.r_radps)
-    # mpc.current_control = BicycleControl(msg.delta_rad, msg.fxf_N, msg.fxr_N)
     mpc.current_control = BicycleControl(to_autobox_msg.delta_cmd_rad, to_autobox_msg.fxf_cmd_N, to_autobox_msg.fxr_cmd_N)
     mpc.trajectory = latest_trajectory[]
 
-    ###### TODO: very messy
-    relative_state_car = HJIRelativeState(mpc.current_state, traj_mpc.other_car_state)
-    V_car, ∇V_car = mpc.HJI_cache[relative_state_car]
-    show_loginfo[] && RobotOS.logwarn("Pigeon MPC: HJI value function = $V_car")
-
-    relative_state_right_wall = WALLRelativeState(mpc.current_state, traj_mpc.right_wall)
-    V_right_wall, ∇V_right_wall = mpc.WALL_cache[relative_state_right_wall]  
-    show_loginfo[] && RobotOS.logwarn("Pigeon MPC: Right WALL value function = $V_right_wall")
-
-    # relative_state_left_wall = WALLRelativeState(mpc.current_state, traj_mpc.left_wall)
-    # relative_state_left_wall.Δψ *= -1
-    # V_left_wall, ∇V_left_wall = mpc.WALL_cache[relative_state_left_wall]  
-    # show_loginfo[] && RobotOS.logwarn("Pigeon MPC: Left WALL value function = $V_left_wall")
-
-
-    # if we are not caring about the wall, the value is always from the other car
-    if (traj_mpc.control_params.W_WALL != 0.0)
-        V_wall = V_right_wall #<= V_left_wall ? V_right_wall : V_left_wall
-        ∇V_wall = ∇V_right_wall #<= V_left_wall ? ∇V_right_wall : ∇V_left_wall
-        relative_state_wall = V_right_wall #<= V_left_wall ? relative_state_right_wall : relative_state_left_wall
-
-        V = V_car <= V_wall ? V_car : V_wall
-        ∇V = V_car <= V_wall ? ∇V_car : ∇V_wall
-        relative_state  = V_car <= V_wall ? relative_state_car : relative_state_wall
-    else
-        V = V_car
-        ∇V = ∇V_car
-        relative_state = relative_state_car
-    end
-
-
-    try
-        update_HJI_values_marker!(HJI_values_marker, relative_state_car)
-        update_HJI_contour_marker!(HJI_contour_marker, relative_state_car)
-        publish(HJI_values_pub, HJI_values_marker)
-        publish(HJI_contour_pub, HJI_contour_marker)
-
-
-        # update_WALL_values_marker!(WALL_values_marker, relative_state)
-        # update_WALL_contour_marker!(WALL_contour_marker, relative_state)
-
-        # publish(WALL_values_pub, WALL_values_marker)
-        # publish(WALL_contour_pub, WALL_contour_marker)
-
-    catch err
-        RobotOS.logwarn("HJI Visualization Error: $err\n$(stacktrace(catch_backtrace()))")
-    end
-    ######
+    show_loginfo[] && RobotOS.logwarn("tracking_mode[] = $tracking_mode")
 
     if msg.pre_flag == 0
         show_loginfo[] && RobotOS.loginfo("Pigeon MPC: /from_autobox pre_flag == 0, MPC inactive")
         return
     end
+    # RobotOS.loginfo("past preflag!")
     if isnan(mpc.time_offset)
         show_loginfo[] && RobotOS.loginfo("Pigeon MPC: time_offset not set, running in path tracking mode")
         _, _, t = path_coordinates(mpc.trajectory, mpc.current_state)
@@ -133,10 +89,12 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
             return
         end
     end
+
     if mpc.current_state.Ux < 1
         show_loginfo[] && RobotOS.loginfo("Pigeon MPC: current speed < 1, pausing MPC while X1 is stopped")
         return
     end
+
     MPC_steps_missed = msg.header.seq - (mpc.heartbeat + 1)
     if MPC_steps_missed != 0
         RobotOS.logwarn("Pigeon MPC: $(MPC_steps_missed) from_autobox messages lost")
@@ -159,27 +117,13 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
         show_loginfo[] && RobotOS.loginfo("Pigeon MPC: OSQP took $(1000*t_elapsed) ms at heartbeat $(mpc.heartbeat)")
     end
 
-    # left_lateral_bounds = [mpc.parameters.e_lbds[i]()[1] for i in 1:length(mpc.parameters.e_lbds)]
-    # right_lateral_bounds = [mpc.parameters.e_rbds[i]()[1] for i in 1:length(mpc.parameters.e_rbds)]
-    # lateral_bounds.data = Float32[mpc.parameters.e_lbds[1]()[1], mpc.parameters.e_lbds[2]()[1]]
-    # publish(lateral_bounds_publisher, lateral_bounds)
 
-    # show_loginfo[] && RobotOS.loginfo("Pigeon MPC: $(mpc.model.optimizer.results.info)")
-    # show_loginfo[] && RobotOS.loginfo("deltas: $(value.(mpc.model, mpc.variables.δ))")
     mpc.heartbeat += 1
 
     s, e, _ = path_coordinates(mpc.trajectory, mpc.current_state)
-    if tracking_mode[] == :traj && use_HJI_policy[] && V <= mpc.HJI_ϵ
-        u_next = BicycleControl(mpc.dynamics.longitudinal_params, optimal_control(mpc.dynamics, relative_state, ∇V))
-        RobotOS.logwarn("\n\nPigeon MPC: HJI stepping in to save the day (with a hammer)")
-        RobotOS.logwarn("Pigeon MPC: HJI value function = $V\n\n")
-    else
-        if tracking_mode[] == :traj && V <= mpc.HJI_ϵ
-            RobotOS.logwarn("\n\nPigeon MPC: HJI stepping in to save the day (with a feather)")
-            RobotOS.logwarn("Pigeon MPC: HJI value function = $V\n\n")
-        end
-        u_next = get_next_control(mpc)
-    end
+
+    u_next = get_next_control(mpc)
+
     to_autobox_msg.header.stamp  = RobotOS.now()
     to_autobox_msg.post_flag     = 1    # TODO: check for OSQP failure
     to_autobox_msg.heartbeat     = mpc.heartbeat
@@ -188,6 +132,9 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
     to_autobox_msg.delta_cmd_rad = u_next.δ
     to_autobox_msg.fxf_cmd_N     = u_next.Fxf
     to_autobox_msg.fxr_cmd_N     = u_next.Fxr
+
+
+    
     if isnan(to_autobox_msg.delta_cmd_rad) || isnan(to_autobox_msg.fxf_cmd_N) || isnan(to_autobox_msg.fxr_cmd_N)
         show_loginfo[] && RobotOS.loginfo("Pigeon MPC: OSQP returned NaNs " *
                                           "($(to_autobox_msg.delta_cmd_rad), $(to_autobox_msg.fxf_cmd_N), $(to_autobox_msg.fxr_cmd_N))" *
@@ -205,43 +152,21 @@ function from_autobox_callback(msg::from_autobox, to_autobox_pub, HJI_values_pub
     else
         publish(to_autobox_pub, to_autobox_msg)
     end
-end
 
-function other_car_callback(msg::XYThV, mpc=X1CMPC)
-    mpc.other_car_state = SimpleCarState(msg.x, msg.y, msg.th - pi/2, msg.v)
 end
 
 ### ROS node init
 function start_ROS_node(roadway_name="west_paddock", traj_mpc=X1CMPC)
     init_node("pigeon", anonymous=false)
-    other_car = RobotOS.get_param("human", "/xbox_car")
-    wall_dist_scale = RobotOS.get_param("wall_boundary_distance", 1.6)
-    roadway = RobotOS.get_param("roadway")
-    θ = roadway["angle"]
-    w = roadway["lane_width"]
-
-    x_mid, y_mid = roadway["start_mid"]
-    a = -sin(θ)
-    b = cos(θ)
-    x0 = x_mid - wall_dist_scale*w * a  # +sinθ -cosθ
-    y0 = y_mid - wall_dist_scale*w * b
-    c = -(a * x0 + b * y0)
-    X1CMPC.right_wall = SVector{4, Float32}([a, b, c, θ])
-
-    x0 = x_mid + wall_dist_scale*w * a
-    y0 = y_mid + wall_dist_scale*w * b
-    c = -(a * x0 + b * y0)
-    X1CMPC.left_wall = SVector{4, Float32}([a, b, c, θ])
 
     to_autobox_pub = Publisher{to_autobox}("/to_autobox", queue_size=10)
-    HJI_values_pub = Publisher{Marker}("/HJI_values", queue_size=1)
-    HJI_contour_pub = Publisher{Marker}("/HJI_contour", queue_size=1)
-    WALL_values_pub = Publisher{Marker}("/WALL_values", queue_size=1)
-    WALL_contour_pub = Publisher{Marker}("/WALL_contour", queue_size=1)
-    lateral_bounds_publisher = Publisher{Float32MultiArray}("/lateral_bounds", queue_size=1)
-    Subscriber{path}("/des_path", nominal_trajectory_callback, queue_size=1)
-    Subscriber{VehicleTrajectory}("/des_traj", nominal_trajectory_callback, queue_size=1)
-    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub, HJI_values_pub, HJI_contour_pub, WALL_values_pub, WALL_contour_pub, lateral_bounds_publisher), queue_size=1)
-    Subscriber{XYThV}("$(other_car)/xythv", other_car_callback, queue_size=1)    # TODO: abstract with a republisher
+    RobotOS.loginfo("Publisher to_autobox passed!")
+    Subscriber{path}("/des_path", nominal_trajectory_callback_decoupled, (X1DMPC,), queue_size=1)
+    Subscriber{VehicleTrajectory}("/des_traj", nominal_trajectory_callback_coupled, (X1CMPC,), queue_size=1)
+    Subscriber{from_autobox}("/from_autobox", from_autobox_callback, (to_autobox_pub, X1DMPC, X1CMPC,), queue_size=1)
+    RobotOS.loginfo("Subscribers passed!")
+
+
     @spawn spin()
+
 end
