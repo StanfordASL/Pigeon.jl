@@ -1,25 +1,17 @@
-name = "Pigeon"
-uuid = "e380a9e0-2d3c-5736-9206-bb8e7d178bd8"
-authors = ["Ed Schmerling <ednerd@gmail.com>"]
-version = "0.1.0"
-
 [deps]
+Contour = "d38c429a-6771-53c6-b99e-75d170b6e991"
 DifferentialDynamicsModels = "cb52cc87-d0c7-5933-bad1-08679d8b4c67"
-Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
 JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
-LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 LinearDynamicsModels = "93c30095-2a61-55f3-920e-6649674b8a9e"
+MAT = "23992714-dd62-5051-b70f-ba57cb901cac"
 MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
-OSQP = "ab2f91bb-94b4-55e3-9ba0-7f65df51de79"
 Parametron = "41fac6d6-0ffa-5bcc-b863-17dd4947be41"
+Pigeon = "e380a9e0-2d3c-5736-9206-bb8e7d178bd8"
 PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"
+RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
+Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 RobotOS = "22415677-39a4-5241-a37a-00beabbbdae8"
+Rotations = "6038ab10-8711-5258-84ad-4b1120ba62dc"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
-
-[extras]
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-
-[targets]
-test = ["Test"]
