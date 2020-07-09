@@ -21,6 +21,7 @@ To start running the Pigeon ROS node
 
 
 You can change the settings to the Pigeon mpc by typing things like:
+
 To switch to the HJI optimal policy (switching controller)
 > Pigeon.use_HJI_policy[] = true  
 
