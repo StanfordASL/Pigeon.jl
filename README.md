@@ -1,5 +1,6 @@
 # Pigeon
 
+Code used for the baseline comparison analysis in the paper.
 
 The baseline comparison technique with HJI-based safety-preserving control constraints.
 The other (human) car is treated as a dynamic obstacle that will continue moving at it's current velocity. The robot car applies state (i.e. lateral error) constraints along the trajectory to stay away from this projection.
