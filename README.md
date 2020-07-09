@@ -11,6 +11,8 @@ The `master` branch has not been updated, but we plan to do that in the future. 
 ### Branch description
 In reference to our IJRR paper ["On Infusing Reachability-Based Safety Assurance within Probabilistic Planning Frameworks for Human-Robot Vehicle Interactions"](http://asl.stanford.edu/wp-content/papercite-data/pdf/Leung.Schmerling.ea.IJRR19.pdf), the following branches were used to perform the analysis from the paper.
 
+Note that in all these branches, they are capable of performing just ordinary trajectory tracking (i.e., without HJI, without walls, etc)
+
 
 `both_walls`: This branch was used to perform the wall-collision avoidance analysis in the paper. Instructions are found on the README in this branch.
 
