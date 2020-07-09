@@ -20,6 +20,7 @@ To start running the Pigeon ROS node
 
 
 You can change the settings to the Pigeon mpc by typing things like:
+
 To switch to the HJI optimal policy (switching controller)
 > Pigeon.use_HJI_policy[] = true  
 
@@ -52,4 +53,3 @@ To change the buffer around the avoid set, affecting when the safety controller 
 
 [![Build Status](https://travis-ci.org/schmrlng/Pigeon.jl.svg?branch=master)](https://travis-ci.org/schmrlng/Pigeon.jl)
 [![codecov.io](http://codecov.io/github/schmrlng/Pigeon.jl/coverage.svg?branch=master)](http://codecov.io/github/schmrlng/Pigeon.jl?branch=master)
-fin
