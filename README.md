@@ -1,5 +1,6 @@
 # Pigeon
 
+Code used for the baseline comparison analysis in the paper.
 
 The baseline comparison technique with HJI-based safety-preserving control constraints.
 The other (human) car is treated as a dynamic obstacle that will continue moving at it's current velocity. The robot car applies state (i.e. lateral error) constraints along the trajectory to stay away from this projection.
@@ -20,6 +21,7 @@ To start running the Pigeon ROS node
 
 
 You can change the settings to the Pigeon mpc by typing things like:
+
 To switch to the HJI optimal policy (switching controller)
 > Pigeon.use_HJI_policy[] = true  
 
