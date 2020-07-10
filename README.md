@@ -9,8 +9,8 @@ The other (human) car is treated as a dynamic obstacle that will continue moving
 ## To run:
 In the julia terminal:
 To activate the julia project environment.
-> ]
-> activate <path to env>
+> ]\
+> activate <path to env\>
 
 To load Pigeon
 > using Pigeon
