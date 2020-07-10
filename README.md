@@ -8,8 +8,8 @@ HJI safety-preserving controller with the option to avoid a wall using HJI_WALL 
 ## To run:
 In the julia terminal:
 To activate the julia project environment.
-> ]
-> activate <path to env>
+> ]\
+> activate <path to env\>
 
 To load Pigeon
 > using Pigeon
