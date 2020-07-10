@@ -1,32 +1,29 @@
 # Pigeon
 
-This has been tested on Julia 1.0.1, and 1.0.5. For some reason, it's slower on later versions of Julia.
+This is a "vanilla" Pigeon MPC tracking controller. The HJI and wall collision avoidance functionalities from the other branches are removed. Given a trajectory, this will compute controls to track that trajectory.
 
-1. download [Julia 1.0.1, or 1.0.5](https://github.com/JuliaLang/julia/)
-2. You need the Pigeon `Project.toml` and `Manifest.toml` files.
-   Make a folder anywhere you want (e.g., `~/.julia/environmentments/pigeon` or `~/projects/pigeon`)
-   Add the `Project.toml` and `Manifest.toml` files from the repo into that folder. You will need to start Julia from the same folder where the `.toml` files live, and 
-3. Open a Julia repl, enter package manager, and add the Pigeon package.
-   > ]
 
-   > activate .
-
-   > instantiate
-
-   > add git@github.com:StanfordASL/Pigeon.jl.git#vanilla_mpc
-
-4. Back in the repl
-
-   > using Pigeon
-
-5. Pigeon should be up and running.
-
-If you want to develop Pigeon, you can type
+## To run:
+In the julia terminal:
+To activate the julia project environment.
 > ]
+> activate <path to env>
 
-> develop Pigeon
+To load Pigeon
+> using Pigeon
 
-and you can find the repo now in `~/.julia/dev/Pigeon`.
+To start running the Pigeon ROS node
+> Pigeon.start_ROS_node()
+
+
+
+You can change the settings to the Pigeon mpc by typing things like:
+
+> Pigeon.X1CMPC.control_params = Pigeon.CoupledControlParams(W_r=50.0)
+
+But the current weights in the objective seems to work pretty well, so we don't recommend changing them unless you feel it is necessary.
+
+
 
 
 
