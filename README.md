@@ -7,7 +7,7 @@ This is a "vanilla" Pigeon MPC tracking controller. The HJI and wall collision a
 In the julia terminal:
 To activate the julia project environment.
 > ]
-> activate <path to env>
+> activate <path to env\>
 
 To load Pigeon
 > using Pigeon
